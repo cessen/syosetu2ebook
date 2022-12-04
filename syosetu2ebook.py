@@ -190,9 +190,9 @@ if __name__ == "__main__":
         book_epub_filepath = os.path.join(tmpdir_path, "book.epub")
         book_kepub_filepath = os.path.join(tmpdir_path, "book.kepub.epub")
 
-        with open(css_filepath, mode='w') as css:
+        with open(css_filepath, mode='w', encoding="utf8") as css:
             css.write(EPUB_CSS)
-        with open(book_text_filepath, mode='w') as book_text:
+        with open(book_text_filepath, mode='w', encoding="utf8") as book_text:
             book_text.write(text)
 
         subprocess.run([
