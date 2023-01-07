@@ -131,57 +131,65 @@ if __name__ == "__main__":
         Downloads books from syosetu.com and converts them to .epub format.
         """
     )
+    arg_parser.add_argument("-l", "--local", help="Just convert a local markdown file instead of downloading anything.", action="store_true")
     arg_parser.add_argument("-k", "--kepub", help="Convert to Kobo kepub instead of plain epub (requires Kepubify to be installed).", action="store_true")
-    arg_parser.add_argument("book_url", help="The full url of book's main page on syosetu.com.")
+    arg_parser.add_argument("book", help="The full url of book's main page on syosetu.com, or path to markdown file if using -l flag.")
     args = arg_parser.parse_args()
-
-    main_url = args.book_url
-    if main_url.endswith("/"):
-        main_url = main_url[:-1]
-
-    # Download main page.
-    print("Downloading main page...")
-    main_page = get_page(main_url)
-
-    # Extract book info.
-    title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_title\">(.*?)</p>", main_page), 1).strip())
-    author = maybe_group(re.search("(?ms)<div class=\"novel_writername\">.*?作者：(.*?)</div>", main_page), 1).strip()
-    author = re.sub("<a[^>]*>", "", author).strip()
-    author = common_subs(re.sub("</a>", "", author).strip())
-    # summary = maybe_group(re.search("(?ms)<div id=\"novel_ex\">(.*?)</div>", main_page), 1).strip()
-    chapter_list = re.findall("(?ms)<dd class=\"subtitle\">(.*?)</dd>", main_page)
-    print("Title: ", title)
-    print("Author: ", author)
-
-    # Download chapter pages.
-    chapters = []
-    for i in range(len(chapter_list)):
-        print("Downloading chapter {} of {}".format(i + 1, len(chapter_list)))
-        chapters += [get_page("{}/{}".format(main_url, i + 1))]
-
-    # Build the book text.
+    
+    # The book text and output filename (sans extension).  Built below.
     text = ""
+    book_filename = ""
 
-    text += "---\n"
-    text += "title: {}\n".format(title)
-    text += "author: {}\n".format(author)
-    text += "language: ja\n"
-    text += "---\n\n"
+    if args.local:
+        filepath = args.book
+        with open(filepath, mode='r') as markdown:
+            text = markdown.read()
+        book_filename = re.sub("\.[^\.]*", "", args.book)
+    else:
+        main_url = args.book
+        if main_url.endswith("/"):
+            main_url = main_url[:-1]
 
-    for chapter_page in chapters:
-        chapter_title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_subtitle\">(.*?)</p>", chapter_page), 1).strip())
-        text += "# {}\n\n".format(chapter_title)
-        chapter_text = maybe_group(re.search("(?ms)<div id=\"novel_honbun\" class=\"novel_view\">(.*?)</div>", chapter_page), 1).strip()
-        for paragraph in re.finditer("(?ms)<p[^>]*>(.*?)</p>", chapter_text):
-            paragraph = paragraph.group(1).strip()
-            if paragraph == "<br>" or paragraph == "<br/>" or paragraph == "<br />":
-                # We do this because authors on syosetu.com really love
-                # to overuse <br/> tags.  Combined with the styling of
-                # p.blank, this keeps the spacing not completely crazy.
-                text += "\n\n<p class=\"blank\"></p>"
-            elif paragraph != "":
-                text += "\n\n{}".format(common_subs(paragraph))
-        text += "\n\n\n"
+        # Download main page.
+        print("Downloading main page...")
+        main_page = get_page(main_url)
+
+        # Extract book info.
+        title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_title\">(.*?)</p>", main_page), 1).strip())
+        author = maybe_group(re.search("(?ms)<div class=\"novel_writername\">.*?作者：(.*?)</div>", main_page), 1).strip()
+        author = re.sub("<a[^>]*>", "", author).strip()
+        author = common_subs(re.sub("</a>", "", author).strip())
+        # summary = maybe_group(re.search("(?ms)<div id=\"novel_ex\">(.*?)</div>", main_page), 1).strip()
+        chapter_list = re.findall("(?ms)<dd class=\"subtitle\">(.*?)</dd>", main_page)
+        print("Title: ", title)
+        print("Author: ", author)
+
+        # Download chapter pages.
+        chapters = []
+        for i in range(len(chapter_list)):
+            print("Downloading chapter {} of {}".format(i + 1, len(chapter_list)))
+            chapters += [get_page("{}/{}".format(main_url, i + 1))]
+
+        text += "---\n"
+        text += "title: {}\n".format(title)
+        text += "author: {}\n".format(author)
+        text += "language: ja\n"
+        text += "---\n\n"
+
+        for chapter_page in chapters:
+            chapter_title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_subtitle\">(.*?)</p>", chapter_page), 1).strip())
+            text += "# {}\n\n".format(chapter_title)
+            chapter_text = maybe_group(re.search("(?ms)<div id=\"novel_honbun\" class=\"novel_view\">(.*?)</div>", chapter_page), 1).strip()
+            for paragraph in re.finditer("(?ms)<p[^>]*>(.*?)</p>", chapter_text):
+                paragraph = paragraph.group(1).strip()
+                if paragraph == "<br>" or paragraph == "<br/>" or paragraph == "<br />":
+                    # We do this because authors on syosetu.com really love
+                    # to overuse <br/> tags.  Combined with the styling of
+                    # p.blank, this keeps the spacing not completely crazy.
+                    text += "\n\n<p class=\"blank\"></p>"
+                elif paragraph != "":
+                    text += "\n\n{}".format(common_subs(paragraph))
+            text += "\n\n\n"
 
     # Create the epub/kepub file via pandoc and kepubify.
     with tempfile.TemporaryDirectory() as tmpdir_path:
@@ -210,7 +218,9 @@ if __name__ == "__main__":
                 book_kepub_filepath,
             ])
 
-        book_filename = title.replace("/", "").replace("\\", "").strip()
+        if book_filename == "":
+            book_filename = title.replace("/", "").replace("\\", "").strip()
+
         # shutil.copyfile(book_text_filepath, "./{}.md".format(book_filename))
         if args.kepub:
             shutil.copyfile(book_kepub_filepath, "./{}.kepub.epub".format(book_filename))
