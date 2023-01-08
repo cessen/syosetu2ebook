@@ -78,6 +78,27 @@ a.footnote-ref { vertical-align: super; }
 span.smallcaps{ font-variant: small-caps; }
 span.underline{ text-decoration: underline; }
 div.column{ display: inline-block; vertical-align: top; width: 50%; }
+
+/* Misc classes for special styling. */
+.horiz {
+    writing-mode: horizontal-tb;
+    -webkit-writing-mode: horizontal-lr;
+    -moz-writing-mode: horizontal-lr;
+    -o-writing-mode: horizontal-lr;
+    -ms-writing-mode: horizontal-lr;
+    -epub-writing-mode: horizontal-lr;
+}
+
+.inset {
+    margin-top: 3.0em;
+    margin-bottom: 3.0em;
+}
+
+.box {
+    margin: 1.0em;
+    padding 1.0em;
+    border: 1px solid #000;
+}
 """
 
 import argparse
