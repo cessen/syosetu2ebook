@@ -145,6 +145,25 @@ def common_subs(text):
         text = text.replace(sub[0], sub[1])
     return text
 
+def generate_chapters_text(chapters, title_prefix="#"):
+    text = ""
+    for chapter_page in chapters:
+        chapter_title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_subtitle\">(.*?)</p>", chapter_page), 1).strip())
+        text += "{} {}\n\n".format(title_prefix, chapter_title)
+        chapter_text = maybe_group(re.search("(?ms)<div id=\"novel_honbun\" class=\"novel_view\">(.*?)</div>", chapter_page), 1).strip()
+        for paragraph in re.finditer("(?ms)<p[^>]*>(.*?)</p>", chapter_text):
+            paragraph = paragraph.group(1).strip()
+            if paragraph == "<br>" or paragraph == "<br/>" or paragraph == "<br />":
+                # We do this because authors on syosetu.com really love
+                # to overuse <br/> tags.  Combined with the styling of
+                # p.blank, this keeps the spacing not completely crazy.
+                text += "\n\n<p class=\"blank\"></p>"
+            elif paragraph != "":
+                text += "\n\n{}".format(common_subs(paragraph))
+        text += "\n\n\n"
+
+    return text
+
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser(description=
@@ -154,6 +173,7 @@ if __name__ == "__main__":
     )
     arg_parser.add_argument("-l", "--local", help="Just convert a local markdown file instead of downloading anything.", action="store_true")
     arg_parser.add_argument("-k", "--kepub", help="Convert to Kobo kepub instead of plain epub (requires Kepubify to be installed).", action="store_true")
+    arg_parser.add_argument("-v", "--volume", help="For books with multiple volumes, this specifies the volume to download.")
     arg_parser.add_argument("book", help="The full url of book's main page on syosetu.com, or path to markdown file if using -l flag.")
     args = arg_parser.parse_args()
     
@@ -177,40 +197,66 @@ if __name__ == "__main__":
 
         # Extract book info.
         title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_title\">(.*?)</p>", main_page), 1).strip())
+        if args.volume != None:
+            title += "（v{}）".format(args.volume)
         author = maybe_group(re.search("(?ms)<div class=\"novel_writername\">.*?作者：(.*?)</div>", main_page), 1).strip()
         author = re.sub("<a[^>]*>", "", author).strip()
         author = common_subs(re.sub("</a>", "", author).strip())
         # summary = maybe_group(re.search("(?ms)<div id=\"novel_ex\">(.*?)</div>", main_page), 1).strip()
-        chapter_list = re.findall("(?ms)<dd class=\"subtitle\">(.*?)</dd>", main_page)
+
+        # Get the list of chapters, possibly organized by volume.
+        volume_list = re.findall("(?ms)<div class=\"chapter_title\">(.*?)</div>", main_page);
+        if len(volume_list) > 1:
+            volumes = re.compile("(?ms)<div class=\"chapter_title\">.*?</div>").split(main_page)[1:]
+            for i in range(len(volume_list)):
+                volume_list[i] = [
+                    volume_list[i].strip(),
+                    re.findall("(?ms)<dd class=\"subtitle\">(.*?)</dd>", volumes[i]),
+                ]
+        else:
+            volume_list = [["", re.findall("(?ms)<dd class=\"subtitle\">(.*?)</dd>", main_page)]]
+
+        # Limit to just a single volume.
+        if args.volume != None:
+            n = int(args.volume) - 1
+            volume_list = [volume_list[n]]
+
         print("Title: ", title)
         print("Author: ", author)
 
         # Download chapter pages.
-        chapters = []
-        for i in range(len(chapter_list)):
-            print("Downloading chapter {} of {}".format(i + 1, len(chapter_list)))
-            chapters += [get_page("{}/{}".format(main_url, i + 1))]
+        volumes = []
+        for i in range(len(volume_list)):
+            volumes += [[volume_list[i][0], []]]
+            for j in range(len(volume_list[i][1])):
+                print("Downloading volume \"{}\" ({}/{}) chapter {}/{}".format(
+                    volume_list[i][0],
+                    i + 1,
+                    len(volume_list),
+                    j + 1,
+                    len(volume_list[i][1]),
+                ))
+                sub_chapter_url_number = re.findall("(?ms)href=\"/[^/]*/([0-9]+)", volume_list[i][1][j])[0]
+                sub_chapter_url = "{}/{}".format(main_url, sub_chapter_url_number)
+                volumes[i][1] += [get_page(sub_chapter_url)]
 
         text += "---\n"
-        text += "title: {}\n".format(title)
+        text += "title:\n"
+        text += "- type: main\n"
+        text += "  text: {}\n".format(title)
+        if len(volumes) == 1 and volumes[0][0] != "":
+            text += "- type: subtitle\n"
+            text += "  text: {}\n".format(volumes[0][0])
         text += "author: {}\n".format(author)
         text += "language: ja\n"
         text += "---\n\n"
 
-        for chapter_page in chapters:
-            chapter_title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_subtitle\">(.*?)</p>", chapter_page), 1).strip())
-            text += "# {}\n\n".format(chapter_title)
-            chapter_text = maybe_group(re.search("(?ms)<div id=\"novel_honbun\" class=\"novel_view\">(.*?)</div>", chapter_page), 1).strip()
-            for paragraph in re.finditer("(?ms)<p[^>]*>(.*?)</p>", chapter_text):
-                paragraph = paragraph.group(1).strip()
-                if paragraph == "<br>" or paragraph == "<br/>" or paragraph == "<br />":
-                    # We do this because authors on syosetu.com really love
-                    # to overuse <br/> tags.  Combined with the styling of
-                    # p.blank, this keeps the spacing not completely crazy.
-                    text += "\n\n<p class=\"blank\"></p>"
-                elif paragraph != "":
-                    text += "\n\n{}".format(common_subs(paragraph))
-            text += "\n\n\n"
+        if len(volumes) == 1:
+            text += generate_chapters_text(volumes[0][1], "#")
+        else:
+            for volume in volumes:
+                text += "# {}\n\n".format(volume[0])
+                text += generate_chapters_text(volume[1], "##")
 
     # Create the epub/kepub file via pandoc and kepubify.
     with tempfile.TemporaryDirectory() as tmpdir_path:
