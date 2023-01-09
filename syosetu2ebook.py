@@ -174,6 +174,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("-l", "--local", help="Just convert a local markdown file instead of downloading anything.", action="store_true")
     arg_parser.add_argument("-k", "--kepub", help="Convert to Kobo kepub instead of plain epub (requires Kepubify to be installed).", action="store_true")
     arg_parser.add_argument("-v", "--volume", help="For books with multiple volumes, this specifies the volume to download.")
+    arg_parser.add_argument("-t", "--title", help="Specify an alternate title to use (sometimes the titles have extra non-title info in them on the site).")
     arg_parser.add_argument("book", help="The full url of book's main page on syosetu.com, or path to markdown file if using -l flag.")
     args = arg_parser.parse_args()
     
@@ -196,7 +197,10 @@ if __name__ == "__main__":
         main_page = get_page(main_url)
 
         # Extract book info.
-        title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_title\">(.*?)</p>", main_page), 1).strip())
+        if args.title != None:
+            title = args.title
+        else:
+            title = common_subs(maybe_group(re.search("(?ms)<p class=\"novel_title\">(.*?)</p>", main_page), 1).strip())
         if args.volume != None:
             title += "（v{}）".format(args.volume)
         author = maybe_group(re.search("(?ms)<div class=\"novel_writername\">.*?作者：(.*?)</div>", main_page), 1).strip()
