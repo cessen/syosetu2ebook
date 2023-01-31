@@ -38,3 +38,15 @@ You can optionally pass the `-k` flag to generate a Kobo kepub file instead:
 ```bash
 ./yomou2ebook.py -k <main_url>
 ```
+
+
+## License
+
+Syosetu 2 eBook is licensed under the MIT license (LICENSE or http://opensource.org/licenses/MIT).
+
+
+## Contributing
+
+Contributions are absolutely welcome!  If you want to make larger changes, please first open an issue to discuss it to avoid doing a lot of work that may get rejected.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Syosetu 2 eBook by you will be licensed as above, without any additional terms or conditions.
