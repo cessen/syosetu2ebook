@@ -118,7 +118,11 @@ def get_page(url, timeout=10.0):
     # fine.  0.5 is extra conservative, just to be safe.
     time.sleep(0.5)
 
-    return urllib.request.urlopen(url, timeout=timeout).read().decode('utf8')
+    # We fake being a browser, because syosetu.com returns 403 otherwise.
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
+    req = urllib.request.Request(url, headers=headers)
+
+    return urllib.request.urlopen(req, timeout=timeout).read().decode('utf8')
 
 def maybe_group(match, group_index):
     if match != None:
