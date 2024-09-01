@@ -15,6 +15,8 @@ use std::{
     time::Duration,
 };
 
+use furigana_gen::FuriganaGenerator;
+
 const EPUB_CSS: &str = r#"@charset "utf-8";
 body {
     writing-mode: vertical-rl;
@@ -165,7 +167,11 @@ fn common_subs(text: &str) -> String {
     new_text
 }
 
-fn generate_chapter_md(chapter_html: &str, title_prefix: &str, do_furigana: bool) -> String {
+fn generate_chapter_md(
+    chapter_html: &str,
+    title_prefix: &str,
+    furigana_generator: Option<&FuriganaGenerator>,
+) -> String {
     let mut text = String::new();
 
     let re_title = regex::Regex::new(r#"(?ms)<p class=\"novel_subtitle\">(.*?)</p>"#).unwrap();
@@ -197,19 +203,10 @@ fn generate_chapter_md(chapter_html: &str, title_prefix: &str, do_furigana: bool
 
     text = common_subs(&text);
 
-    // // Optionally add furigana.
-    // if do_furigana {
-    //     result = subprocess.run(
-    //         ["furigana_gen"],
-    //         input=text,
-    //         text=True,
-    //         capture_output=True
-    //     )
-    //     if result.returncode == 0:
-    //         text = result.stdout
-    //     else:
-    //         print("Warning: couldn't add furigana. Are you sure furigana_gen is in your path?")
-    // }
+    // Optionally add furigana.
+    if let Some(furigen) = furigana_generator {
+        text = furigen.add_html_furigana(&text);
+    }
 
     text
 }
@@ -269,6 +266,12 @@ impl Args {
 
 fn main() {
     let args = Args::parse();
+
+    let furigana_generator = if args.furigana {
+        Some(FuriganaGenerator::new())
+    } else {
+        None
+    };
 
     // The book text and output filename (sans extension).  Built below.
     let mut text = String::new();
@@ -398,7 +401,7 @@ fn main() {
                     chapters.push(generate_chapter_md(
                         &chapter_html,
                         title_prefix,
-                        args.furigana,
+                        furigana_generator.as_ref(),
                     ));
                 }
 
