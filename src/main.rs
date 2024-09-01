@@ -437,6 +437,10 @@ fn main() {
         }
     }
 
+    if args.furigana {
+        book_filename.push_str("_furigana");
+    }
+
     // Create the epub/kepub file via pandoc and kepubify.
     let tmpdir = tempfile::tempdir().unwrap();
     let css_filepath = tmpdir.path().join("book_style.css");
@@ -453,30 +457,39 @@ fn main() {
         f.write_all(text.as_bytes()).unwrap();
     }
 
-    let output = Command::new("pandoc")
-        .arg(&book_md_filepath)
-        .arg("--css")
-        .arg(&css_filepath)
-        .arg("-o")
-        .arg(&book_epub_filepath)
-        .output()
-        .expect("Failed to execute command");
+    if !args.local {
+        std::fs::copy(&book_md_filepath, format!("./{}.md", &book_filename)).unwrap();
+    }
 
+    {
+        let output = Command::new("pandoc")
+            .arg(&book_md_filepath)
+            .arg("--css")
+            .arg(&css_filepath)
+            .arg("-o")
+            .arg(&book_epub_filepath)
+            .output()
+            .expect("Failed to execute pandoc: are you sure it's installed and in your path?");
+
+        std::io::stdout().write_all(&output.stdout).unwrap();
+        if !output.status.success() {
+            std::io::stderr().write_all(&output.stderr).unwrap();
+            panic!("pandoc did not succeed.");
+        }
+    }
     if args.kepub {
         let output = Command::new("kepubify")
             .arg(&book_epub_filepath)
             .arg("-o")
             .arg(&book_kepub_filepath)
             .output()
-            .expect("Failed to execute command");
-    }
+            .expect("Failed to execute kepubify: are you sure it's installed and in your path?");
 
-    if args.furigana {
-        book_filename.push_str("_furigana");
-    }
-
-    if !args.local {
-        std::fs::copy(book_md_filepath, format!("./{}.md", book_filename)).unwrap();
+        std::io::stdout().write_all(&output.stdout).unwrap();
+        if !output.status.success() {
+            std::io::stderr().write_all(&output.stderr).unwrap();
+            panic!("kepubify did not succeed.");
+        }
     }
 
     if args.kepub {
