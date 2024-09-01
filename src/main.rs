@@ -282,6 +282,8 @@ fn main() {
         let main_url = args.book.trim_end_matches("/");
 
         // Download main page.
+        //
+        // TODO: handle paginated main pages.
         println!("Downloading main page...");
         let main_page = get_page(&main_url).unwrap();
 
