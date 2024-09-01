@@ -108,16 +108,6 @@ div.column{ display: inline-block; vertical-align: top; width: 50%; }
 }
 "#;
 
-// import argparse
-// import sys
-// import os
-// import shutil
-// import time
-// import tempfile
-// import subprocess
-// import urllib.request
-// import re
-
 fn get_page(url: &str) -> Result<String, ureq::Error> {
     const TIMEOUT_SECS: u64 = 60;
 
@@ -325,6 +315,7 @@ fn main() {
         //     let re = regex::Regex::new(r#"(?ms)<div id=\"novel_ex\">(.*?)</div>"#).unwrap();
         //     maybe_group(re.captures(&main_page), 1).trim()
         // };
+
         println!("Title: {}", title);
         println!("Author: {}", author);
         // println!("Summary: {}", summary);
