@@ -282,10 +282,8 @@ fn main() {
         let main_url = args.book.trim_end_matches("/");
         let base_url = main_url.rsplitn(2, "/").nth(1).unwrap();
 
-        dbg!(main_url, base_url);
-
         // Download main page (possibly paginated across multiple actual pages).
-        println!("Downloading main page...");
+        println!("Downloading table of contents...");
         let main_page = {
             let re_main_next = regex::Regex::new(
                 r#"(?ms)<a href="([^<]*?)" class="novelview_pager-next">次へ</a>"#,
