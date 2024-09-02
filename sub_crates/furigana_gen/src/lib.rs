@@ -129,21 +129,36 @@ fn matching_kana_ends(a: &str, b: &str) -> (usize, usize) {
     }
 }
 
+/// Due to the way this is used, this isn't meant to be exact, but instead
+/// liberal in what it considers equivalent.
 fn is_equivalent_kana(a: char, b: char) -> bool {
-    let a = normalize_kana(a);
-    let b = normalize_kana(b);
-    match (a, b) {
-        (Some('は'), Some('わ'))
-        | (Some('わ'), Some('は'))
-        | (Some('を'), Some('お'))
-        | (Some('お'), Some('を'))
-        | (Some(_), Some('ー'))
-        | (Some('ー'), Some(_)) => true,
+    const PAIRS: &[[char; 2]] = &[['は', 'わ'], ['を', 'お'], ['づ', 'ず'], ['へ', 'え']];
+    const VOWELS: &[char] = &['あ', 'い', 'う', 'え', 'お', 'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ'];
 
-        (Some(c), Some(d)) if c == d => true,
+    let (a, b) = match (normalize_kana(a), normalize_kana(b)) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return false,
+    };
 
-        _ => false,
+    if a == b {
+        return true;
     }
+
+    if a == 'ー' && VOWELS.contains(&b) {
+        return true;
+    }
+
+    if b == 'ー' && VOWELS.contains(&a) {
+        return true;
+    }
+
+    for &[c, d] in PAIRS {
+        if (a == c && b == d) || (a == d && b == c) {
+            return true;
+        }
+    }
+
+    false
 }
 
 const HIRAGANA: u32 = 0x3041;
@@ -216,5 +231,44 @@ mod tests {
 
         assert_eq!(9, start_bytes);
         assert_eq!(0, end_bytes);
+    }
+
+    #[test]
+    fn is_equivalent_kana_01() {
+        assert!(is_equivalent_kana('か', 'カ'));
+        assert!(is_equivalent_kana('カ', 'か'));
+        assert!(is_equivalent_kana('ぁ', 'ァ'));
+        assert!(is_equivalent_kana('ァ', 'ぁ'));
+        assert!(is_equivalent_kana('は', 'わ'));
+        assert!(is_equivalent_kana('わ', 'は'));
+        assert!(is_equivalent_kana('を', 'お'));
+        assert!(is_equivalent_kana('お', 'を'));
+        assert!(is_equivalent_kana('づ', 'ず'));
+        assert!(is_equivalent_kana('ず', 'づ'));
+        assert!(is_equivalent_kana('ー', 'あ'));
+        assert!(is_equivalent_kana('あ', 'ー'));
+        assert!(is_equivalent_kana('ー', 'ぁ'));
+        assert!(is_equivalent_kana('ぁ', 'ー'));
+
+        assert!(!is_equivalent_kana('は', 'ば'));
+        assert!(!is_equivalent_kana('ー', 'か'));
+        assert!(!is_equivalent_kana('た', '食'));
+    }
+
+    #[test]
+    fn tokenize_01() {
+        let gen = FuriganaGenerator::new();
+
+        let mut worker = gen.tokenizer.new_worker();
+        worker.reset_sentence("食べている");
+        worker.tokenize();
+
+        assert_eq!(3, worker.num_tokens());
+        assert_eq!("食べ", worker.token(0).surface());
+        assert_eq!("動詞-一般,タベ", worker.token(0).feature());
+        assert_eq!("て", worker.token(1).surface());
+        assert_eq!("助詞-接続助詞,テ", worker.token(1).feature());
+        assert_eq!("いる", worker.token(2).surface());
+        assert_eq!("動詞-非自立可能,イル", worker.token(2).feature());
     }
 }
