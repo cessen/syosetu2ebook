@@ -280,12 +280,37 @@ fn main() {
             .into();
     } else {
         let main_url = args.book.trim_end_matches("/");
+        let base_url = main_url.rsplitn(2, "/").nth(1).unwrap();
 
-        // Download main page.
-        //
-        // TODO: handle paginated main pages.
+        dbg!(main_url, base_url);
+
+        // Download main page (possibly paginated across multiple actual pages).
         println!("Downloading main page...");
-        let main_page = get_page(&main_url).unwrap();
+        let main_page = {
+            let re_main_next = regex::Regex::new(
+                r#"(?ms)<a href="([^<]*?)" class="novelview_pager-next">次へ</a>"#,
+            )
+            .unwrap();
+
+            let mut content = String::new();
+            let mut next_url: Option<String> = Some(main_url.into());
+            let mut page_num = 1;
+            while let Some(url) = next_url {
+                println!("  Page {}...", page_num);
+                let page = get_page(&url).unwrap();
+                content.push_str(&page);
+
+                let link = maybe_group(re_main_next.captures(&page), 1);
+                next_url = if !link.is_empty() {
+                    Some(format!("{}{}", base_url, link))
+                } else {
+                    None
+                };
+
+                page_num += 1;
+            }
+            content
+        };
 
         // Extract book info.
         let title = {
