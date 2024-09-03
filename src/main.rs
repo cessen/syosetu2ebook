@@ -209,6 +209,26 @@ fn common_subs(text: &str) -> String {
     new_text
 }
 
+fn ascii_to_fullwidth(text: &str) -> String {
+    let mut new_text = String::new();
+
+    for c in text.chars() {
+        if c as u32 >= 0x21 && c as u32 <= 0x7e {
+            new_text.push(char::from_u32(c as u32 + (0xff01 - 0x21)).unwrap());
+            continue;
+        }
+
+        if c == ' ' {
+            new_text.push('　');
+            continue;
+        }
+
+        new_text.push(c);
+    }
+
+    new_text
+}
+
 // Returns (title, xhtml_page).  Note that the content contains the title as a
 // header item as well.  The separate title is for metadata.
 fn generate_chapter_html(
@@ -495,7 +515,6 @@ fn main() {
     };
 
     // Generate the epub.
-
     let epub_output = {
         let mut builder =
             epub_builder::EpubBuilder::new(epub_builder::ZipLibrary::new().unwrap()).unwrap();
@@ -509,9 +528,14 @@ fn main() {
             .add_content(
                 epub_builder::EpubContent::new(
                     "title.xhtml",
-                    epub_title_page(&title, None, Some(&author)).as_bytes(),
+                    epub_title_page(
+                        &ascii_to_fullwidth(&title),
+                        None,
+                        Some(&ascii_to_fullwidth(&author)),
+                    )
+                    .as_bytes(),
                 )
-                .title("Title")
+                .title(&title)
                 .reftype(epub_builder::ReferenceType::TitlePage),
             )
             .unwrap();
