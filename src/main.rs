@@ -17,6 +17,10 @@ struct Volume {
     subtitle: String,
     author: String,
     chapters: Vec<Chapter>,
+
+    /// If this only contains a subset of the chapters, this indicates
+    /// which chapters.
+    chapter_range: Option<(usize, usize)>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,29 +29,41 @@ struct Chapter {
     xhtml_page: String,
 }
 
-fn volume_to_epub(volume: &Volume) -> Vec<u8> {
+/// (composite_subtitle, data)
+fn volume_to_epub(volume: &Volume) -> (String, Vec<u8>) {
     let mut builder =
         epub_builder::EpubBuilder::new(epub_builder::ZipLibrary::new().unwrap()).unwrap();
 
-    let title_and_subtitle = {
+    let composite_subtitle = {
+        let mut sub = volume.subtitle.clone();
+        if !sub.is_empty() && volume.chapter_range.is_some() {
+            sub.push_str("　");
+        }
+        if let Some((start, end)) = volume.chapter_range {
+            sub.push_str(&format!("（{}～{}話）", start, end));
+        }
+        sub
+    };
+
+    let composite_title = {
         let mut t = volume.title.clone();
-        if !volume.subtitle.is_empty() {
-            t.push_str(" - ");
-            t.push_str(&volume.subtitle);
+        if !composite_subtitle.is_empty() {
+            t.push_str(" ： ");
+            t.push_str(&composite_subtitle);
         }
         t
     };
 
     builder.set_lang("ja");
     builder.metadata("author", &volume.author).unwrap();
-    builder.metadata("title", &title_and_subtitle).unwrap();
+    builder.metadata("title", &composite_title).unwrap();
     builder.stylesheet(EPUB_CSS.as_bytes()).unwrap();
 
     // Title page.
     {
         let title = ascii_to_fullwidth(&volume.title);
-        let subtitle = if !volume.subtitle.is_empty() {
-            Some(ascii_to_fullwidth(&volume.subtitle))
+        let subtitle = if !composite_subtitle.is_empty() {
+            Some(ascii_to_fullwidth(&composite_subtitle))
         } else {
             None
         };
@@ -64,7 +80,7 @@ fn volume_to_epub(volume: &Volume) -> Vec<u8> {
                     )
                     .as_bytes(),
                 )
-                .title(&title_and_subtitle)
+                .title(&composite_title)
                 .reftype(epub_builder::ReferenceType::TitlePage),
             )
             .unwrap();
@@ -94,7 +110,7 @@ fn volume_to_epub(volume: &Volume) -> Vec<u8> {
     let mut epub_output: Vec<u8> = Vec::new();
     builder.generate(&mut epub_output).unwrap();
 
-    epub_output
+    (composite_subtitle, epub_output)
 }
 
 fn epub_title_page(title: &str, subtitle: Option<&str>, author: Option<&str>) -> String {
@@ -380,6 +396,7 @@ struct Args {
     kepub: bool,
     furigana: bool,
     volume: Option<usize>,
+    chapters: Option<String>,
     title: Option<String>,
     book: String,
 }
@@ -401,6 +418,11 @@ impl Args {
             .help("For books with multiple volumes, only download the Nth volume.")
             .argument::<usize>("N")
             .optional();
+        let chapters = short('c')
+            .long("chapters")
+            .help("Only download chapters N through M. (Note: you probably only want this when downloading a single volume.)")
+            .argument::<String>("N-M")
+            .optional();
         let title = short('t')
         .long("title")
         .help("Specify an alternate title to use (sometimes the titles have extra non-title info in them on the site).")
@@ -412,16 +434,47 @@ impl Args {
             kepub,
             furigana,
             volume,
+            chapters,
             title,
             book
         })
         .to_options()
         .run()
     }
+
+    /// Returns true if all is good, false if there's a problem.
+    ///
+    /// Prints its own error messages if there's a problem.
+    fn validate(&self) -> bool {
+        if let Some(ref chapters) = self.chapters {
+            let validate = regex::Regex::new(r#"^[0-9]+-[0-9]+$"#).unwrap();
+            if !validate.is_match(chapters) {
+                println!("Error: invalid chaper range: must be in N-M format, for example 3-10.");
+                return false;
+            }
+            let (start, end) = parse_number_range(chapters);
+            if start > end || start < 1 {
+                println!("Error: invalid chaper range: start must be greater than zero and less-than-or-equal to end.");
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
+fn parse_number_range(text: &str) -> (usize, usize) {
+    (
+        text.split("-").nth(0).unwrap().parse::<usize>().unwrap(),
+        text.split("-").nth(1).unwrap().parse::<usize>().unwrap(),
+    )
 }
 
 fn main() {
     let args = Args::parse();
+    if !args.validate() {
+        return;
+    }
 
     let furigana_generator = if args.furigana {
         Some(FuriganaGenerator::new())
@@ -545,7 +598,21 @@ fn main() {
             // Download volume chapters and build volume.
             let volume = {
                 let mut chapters: Vec<Chapter> = Vec::new();
-                for (chap_i, chapter_link) in table_of_contents[vol_i].1.iter().enumerate() {
+
+                let chapter_range = if let Some(ref chapter_range) = args.chapters {
+                    let (start, end) = parse_number_range(chapter_range);
+                    if end > table_of_contents[vol_i].1.len() {
+                        println!("Error: not enough chapters for the given chapter range.");
+                        return; // Exit program.
+                    }
+
+                    (start - 1)..end
+                } else {
+                    0..table_of_contents[vol_i].1.len()
+                };
+
+                for chap_i in chapter_range {
+                    let chapter_link = &table_of_contents[vol_i].1[chap_i];
                     println!(
                         "    Downloading chapter {}/{}",
                         chap_i + 1,
@@ -569,32 +636,23 @@ fn main() {
                     subtitle: table_of_contents[vol_i].0.into(),
                     author: author.clone(),
                     chapters: chapters.clone(),
+                    chapter_range: args.chapters.as_ref().map(|r| parse_number_range(r)),
                 }
             };
 
             // Generate the epub.
             {
-                // Output filename without file extension.
-                let book_filename = {
-                    let mut book_filename: String = volume
-                        .title
-                        .replace("/", "")
-                        .replace("\\", "")
-                        .trim()
-                        .into();
+                let (composite_subtitle, epub_bytes) = volume_to_epub(&volume);
 
-                    let volume_number = if let Some(vol) = args.volume {
-                        vol
-                    } else {
-                        vol_i + 1
-                    };
+                // Output filename, sans extension.
+                let book_filename: String = {
+                    let mut book_filename = volume.title.clone();
 
                     if !volume.subtitle.is_empty() {
-                        book_filename.push_str(&format!(
-                            " - {:02} - {}",
-                            volume_number,
-                            volume.subtitle.replace("/", "").replace("\\", "").trim()
-                        ));
+                        book_filename.push_str(&format!(" - {:02}", vol_i + 1));
+                    }
+                    if !composite_subtitle.is_empty() {
+                        book_filename.push_str(&format!(" - {}", composite_subtitle));
                     }
 
                     if args.furigana {
@@ -602,13 +660,16 @@ fn main() {
                     }
 
                     book_filename
+                        .replace("/", "")
+                        .replace("\\", "")
+                        .trim()
+                        .into()
                 };
 
                 // Make epub.
                 let epub_filepath = format!("{}.epub", book_filename);
                 {
-                    println!("    Generating \"{}\"", epub_filepath);
-                    let epub_bytes = volume_to_epub(&volume);
+                    println!("    Writing \"{}\"", epub_filepath);
                     let mut f = File::create(&epub_filepath).unwrap();
                     f.write_all(&epub_bytes).unwrap();
                 }
