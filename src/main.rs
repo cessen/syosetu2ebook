@@ -11,6 +11,92 @@ use std::{fs::File, io::Write, process::Command, time::Duration};
 
 use furigana_gen::FuriganaGenerator;
 
+#[derive(Debug, Clone)]
+struct Volume {
+    title: String,
+    subtitle: String,
+    author: String,
+    chapters: Vec<Chapter>,
+}
+
+#[derive(Debug, Clone)]
+struct Chapter {
+    title: String,
+    xhtml_page: String,
+}
+
+fn volume_to_epub(volume: &Volume) -> Vec<u8> {
+    let mut builder =
+        epub_builder::EpubBuilder::new(epub_builder::ZipLibrary::new().unwrap()).unwrap();
+
+    let title_and_subtitle = {
+        let mut t = volume.title.clone();
+        if !volume.subtitle.is_empty() {
+            t.push_str(" - ");
+            t.push_str(&volume.subtitle);
+        }
+        t
+    };
+
+    builder.set_lang("ja");
+    builder.metadata("author", &volume.author).unwrap();
+    builder.metadata("title", &title_and_subtitle).unwrap();
+    builder.stylesheet(EPUB_CSS.as_bytes()).unwrap();
+
+    // Title page.
+    {
+        let title = ascii_to_fullwidth(&volume.title);
+        let subtitle = if !volume.subtitle.is_empty() {
+            Some(ascii_to_fullwidth(&volume.subtitle))
+        } else {
+            None
+        };
+        let author = Some(ascii_to_fullwidth(&volume.author));
+
+        builder
+            .add_content(
+                epub_builder::EpubContent::new(
+                    "title.xhtml",
+                    epub_title_page(
+                        &title,
+                        subtitle.as_ref().map(|s| s.as_str()),
+                        author.as_ref().map(|s| s.as_str()),
+                    )
+                    .as_bytes(),
+                )
+                .title(&title_and_subtitle)
+                .reftype(epub_builder::ReferenceType::TitlePage),
+            )
+            .unwrap();
+    }
+
+    // Chapters in the volume.
+    let mut is_first = true;
+    for (chap_i, chapter) in volume.chapters.iter().enumerate() {
+        // Build a chapter.
+        let mut content = epub_builder::EpubContent::new(
+            format!("chapter_{}.xhtml", chap_i),
+            chapter.xhtml_page.as_bytes(),
+        )
+        .title(&chapter.title);
+
+        // If it's the first one, mark it as the beginning of the "real
+        // content".
+        if is_first {
+            content = content.reftype(epub_builder::ReferenceType::Text);
+            is_first = false;
+        }
+
+        // Add the chapter.
+        builder.add_content(content).unwrap();
+    }
+
+    let mut epub_output: Vec<u8> = Vec::new();
+    builder.generate(&mut epub_output).unwrap();
+
+    epub_output
+}
+
 fn epub_title_page(title: &str, subtitle: Option<&str>, author: Option<&str>) -> String {
     let mut page = String::new();
 
@@ -231,11 +317,11 @@ fn ascii_to_fullwidth(text: &str) -> String {
 
 // Returns (title, xhtml_page).  Note that the content contains the title as a
 // header item as well.  The separate title is for metadata.
-fn generate_chapter_html(
+fn generate_chapter(
     chapter_html_in: &str,
     title_tag: &str,
     furigana_generator: Option<&FuriganaGenerator>,
-) -> (String, String) {
+) -> Chapter {
     let mut text = String::new();
 
     let process = |text: &str| -> String {
@@ -283,10 +369,10 @@ fn generate_chapter_html(
         }
     }
 
-    (
-        chapter_title.clone(),
-        epub_content_page(&chapter_title, &text),
-    )
+    Chapter {
+        title: chapter_title.clone(),
+        xhtml_page: epub_content_page(&chapter_title, &text),
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -351,22 +437,6 @@ fn main() {
         None
     };
 
-    // The book's output filename (sans extension).  Built below.
-    let mut book_filename: String;
-
-    // TODO: bring back working on local files...?
-    // if args.local {
-    //     let mut f = File::open(&args.book).unwrap();
-    //     f.read_to_string(&mut text).unwrap();
-    //     book_filename = regex::Regex::new(r#"\.[^\.]*$"#)
-    //         .unwrap()
-    //         .replace_all(&args.book, "")
-    //         .into();
-    //     book_filename = regex::Regex::new(r#"^.*/"#)
-    //         .unwrap()
-    //         .replace_all(&book_filename, "")
-    //         .into();
-    // } else {
     let main_url = args.book.trim_end_matches("/");
     let base_url = main_url.rsplitn(2, "/").nth(1).unwrap();
 
@@ -381,7 +451,7 @@ fn main() {
         let mut next_url: Option<String> = Some(main_url.into());
         let mut page_num = 1;
         while let Some(url) = next_url {
-            println!("  Page {}...", page_num);
+            println!("    Page {}...", page_num);
             let page = get_page(&url).unwrap();
             content.push_str(&page);
 
@@ -398,20 +468,13 @@ fn main() {
     };
 
     // Extract book info.
-    let title = {
-        let mut title = if let Some(title) = args.title {
-            title
-        } else {
-            let re = regex::Regex::new(r#"(?ms)<p class=\"novel_title\">(.*?)</p>"#).unwrap();
-            common_subs(maybe_group(re.captures(&main_page), 1).trim())
-        };
-
-        if let Some(vol) = args.volume {
-            title.push_str(&format!(" (vol {})", vol));
-        }
-
+    let title = if let Some(title) = args.title {
         title
+    } else {
+        let re = regex::Regex::new(r#"(?ms)<p class=\"novel_title\">(.*?)</p>"#).unwrap();
+        common_subs(maybe_group(re.captures(&main_page), 1).trim())
     };
+
     let author = {
         let re1 = regex::Regex::new(r#"(?ms)<div class=\"novel_writername\">.*?作者：(.*?)</div>"#)
             .unwrap();
@@ -427,17 +490,9 @@ fn main() {
     //     maybe_group(re.captures(&main_page), 1).trim()
     // };
 
-    println!("Title: {}", title);
-    println!("Author: {}", author);
-    // println!("Summary: {}", summary);
-
-    book_filename = title.replace("/", "").replace("\\", "").trim().into();
-
-    // Get the list of chapters, possibly organized by volume.
-    //
     // A vector of (volume_title, chapter_links), where the chapter links are
     // in `<a href="url">title</a>` format.
-    let volume_list: Vec<(&str, Vec<&str>)> = {
+    let table_of_contents: Vec<(&str, Vec<&str>)> = {
         let re_volumes =
             regex::Regex::new(r#"(?ms)<div class=\"chapter_title\">(.*?)</div>"#).unwrap();
 
@@ -456,7 +511,7 @@ fn main() {
             .map(|c| c.get(1).map(|m| m.as_str()).unwrap_or("").trim())
             .collect();
 
-        let volume_list: Vec<_> = if volume_titles.len() > 1 {
+        let table_of_contents: Vec<_> = if volume_titles.len() > 1 {
             let volume_htmls: Vec<&str> = re_volumes.split(&main_page).skip(1).collect();
 
             volume_titles
@@ -471,199 +526,120 @@ fn main() {
         if let Some(vol) = args.volume {
             // Limit to just the single specified volume.
             let n = vol - 1;
-            [volume_list[n].clone()].into()
+            [table_of_contents[n].clone()].into()
         } else {
-            volume_list
+            table_of_contents
         }
     };
 
-    // Download chapter pages.
-    let volumes: Vec<(&str, Vec<(String, String)>)> = {
+    println!("\nTitle: {}", title);
+    println!("Author: {}", author);
+    // println!("Summary: {}", summary);
+    println!("Volumes: {}", table_of_contents.len());
+
+    // Download chapter pages and generate books.
+    {
         let re_chapter_number = regex::Regex::new(r#"(?ms)href=\"/[^/]*/([0-9]+)"#).unwrap();
 
-        let mut volumes: Vec<(&str, Vec<(String, String)>)> = Vec::new();
+        for vol_i in 0..table_of_contents.len() {
+            println!(
+                "\nVolume \"{}\" ({}/{})",
+                table_of_contents[vol_i].0,
+                vol_i + 1,
+                table_of_contents.len(),
+            );
 
-        for i in 0..volume_list.len() {
-            let mut chapters: Vec<(String, String)> = Vec::new();
-            for (j, chapter_link) in volume_list[i].1.iter().enumerate() {
-                println!(
-                    "Downloading volume \"{}\" ({}/{}) chapter {}/{}",
-                    volume_list[i].0,
-                    i + 1,
-                    volume_list.len(),
-                    j + 1,
-                    volume_list[i].1.len(),
-                );
+            // Download volume chapters and build volume.
+            let volume = {
+                let mut chapters: Vec<Chapter> = Vec::new();
+                for (chap_i, chapter_link) in table_of_contents[vol_i].1.iter().enumerate() {
+                    println!(
+                        "    Downloading chapter {}/{}",
+                        chap_i + 1,
+                        table_of_contents[vol_i].1.len(),
+                    );
 
-                let sub_chapter_url_number =
-                    maybe_group(re_chapter_number.captures(chapter_link), 1);
-                let sub_chapter_url = format!("{}/{}", main_url, sub_chapter_url_number);
-                let chapter_html = get_page(&sub_chapter_url).unwrap();
+                    let sub_chapter_url_number =
+                        maybe_group(re_chapter_number.captures(chapter_link), 1);
+                    let sub_chapter_url = format!("{}/{}", main_url, sub_chapter_url_number);
+                    let chapter_html = get_page(&sub_chapter_url).unwrap();
 
-                let title_tag = if volume_list.len() > 1 { "h2" } else { "h1" };
-                chapters.push(generate_chapter_html(
-                    &chapter_html,
-                    title_tag,
-                    furigana_generator.as_ref(),
-                ));
-            }
-
-            volumes.push((volume_list[i].0, chapters));
-        }
-
-        volumes
-    };
-
-    // Generate the epub.
-    let epub_output = {
-        let mut builder =
-            epub_builder::EpubBuilder::new(epub_builder::ZipLibrary::new().unwrap()).unwrap();
-
-        builder.set_lang("ja");
-        builder.metadata("author", &author).unwrap();
-        builder.metadata("title", &title).unwrap();
-        builder.stylesheet(EPUB_CSS.as_bytes()).unwrap();
-        // TODO: proper title page.
-        builder
-            .add_content(
-                epub_builder::EpubContent::new(
-                    "title.xhtml",
-                    epub_title_page(
-                        &ascii_to_fullwidth(&title),
-                        None,
-                        Some(&ascii_to_fullwidth(&author)),
-                    )
-                    .as_bytes(),
-                )
-                .title(&title)
-                .reftype(epub_builder::ReferenceType::TitlePage),
-            )
-            .unwrap();
-
-        let mut is_first = true;
-        for (vol_i, (_vol, chapters)) in volumes.iter().enumerate() {
-            // TODO: handle multipel volumes.
-
-            for (chap_i, (chapter_title, chapter_xhtml)) in chapters.iter().enumerate() {
-                // Build a chapter.
-                let mut content = epub_builder::EpubContent::new(
-                    format!("vol{}_chapter{}.xhtml", vol_i, chap_i),
-                    chapter_xhtml.as_bytes(),
-                )
-                .title(chapter_title);
-
-                // If it's the first one, mark it as the beginning of the "real
-                // content".
-                if is_first {
-                    content = content.reftype(epub_builder::ReferenceType::Text);
-                    is_first = false;
+                    chapters.push(generate_chapter(
+                        &chapter_html,
+                        "h1",
+                        furigana_generator.as_ref(),
+                    ));
                 }
 
-                // Add the chapter.
-                builder.add_content(content).unwrap();
+                Volume {
+                    title: title.clone(),
+                    subtitle: table_of_contents[vol_i].0.into(),
+                    author: author.clone(),
+                    chapters: chapters.clone(),
+                }
+            };
+
+            // Generate the epub.
+            {
+                // Output filename without file extension.
+                let book_filename = {
+                    let mut book_filename: String = volume
+                        .title
+                        .replace("/", "")
+                        .replace("\\", "")
+                        .trim()
+                        .into();
+
+                    let volume_number = if let Some(vol) = args.volume {
+                        vol
+                    } else {
+                        vol_i + 1
+                    };
+
+                    if !volume.subtitle.is_empty() {
+                        book_filename.push_str(&format!(
+                            " - {:02} - {}",
+                            volume_number,
+                            volume.subtitle.replace("/", "").replace("\\", "").trim()
+                        ));
+                    }
+
+                    if args.furigana {
+                        book_filename.push_str("_furigana");
+                    }
+
+                    book_filename
+                };
+
+                // Make epub.
+                let epub_filepath = format!("{}.epub", book_filename);
+                {
+                    println!("    Generating \"{}\"", epub_filepath);
+                    let epub_bytes = volume_to_epub(&volume);
+                    let mut f = File::create(&epub_filepath).unwrap();
+                    f.write_all(&epub_bytes).unwrap();
+                }
+
+                // Optionally make kepub.
+                let kepub_filepath = format!("{}.kepub.epub", book_filename);
+                if args.kepub {
+                    println!("    Generating \"{}\"", kepub_filepath);
+                    let output = Command::new("kepubify")
+                        .arg(&epub_filepath)
+                        .arg("-o")
+                        .arg(&kepub_filepath)
+                        .output()
+                        .expect(
+                            "Failed to execute kepubify: are you sure it's installed and in your path?",
+                        );
+
+                    std::io::stdout().write_all(&output.stdout).unwrap();
+                    if !output.status.success() {
+                        std::io::stderr().write_all(&output.stderr).unwrap();
+                        panic!("kepubify did not succeed.");
+                    }
+                }
             }
         }
-
-        let mut epub_output: Vec<u8> = Vec::new();
-        builder.generate(&mut epub_output).unwrap();
-
-        epub_output
     };
-
-    // text.push_str("---\n");
-    // text.push_str("title:\n");
-    // text.push_str("- type: main\n");
-    // text.push_str(&format!("  text: {}\n", title));
-    // if volumes.len() == 1 && volumes[0].0 != "" {
-    //     text.push_str("- type: subtitle\n");
-    //     text.push_str(&format!("  text: {}\n", volumes[0].0));
-    // }
-    // text.push_str(&format!("author: {}\n", author));
-    // text.push_str("language: ja\n");
-    // text.push_str("---\n\n");
-
-    // if volumes.len() == 1 {
-    //     for chapter_md in &volumes[0].1 {
-    //         text.push_str(chapter_md);
-    //     }
-    // } else {
-    //     for volume in &volumes {
-    //         text.push_str(&format!("# {}\n\n", volume.0));
-    //         for chapter_md in &volume.1 {
-    //             text.push_str(chapter_md);
-    //         }
-    //     }
-    // }
-    // }
-
-    if args.furigana {
-        book_filename.push_str("_furigana");
-    }
-
-    // Create the epub/kepub file via pandoc and kepubify.
-    let tmpdir = tempfile::tempdir().unwrap();
-    // let css_filepath = tmpdir.path().join("book_style.css");
-    // let book_md_filepath = tmpdir.path().join("book.md");
-    let book_epub_filepath = tmpdir.path().join("book.epub");
-    let book_kepub_filepath = tmpdir.path().join("book.kepub.epub");
-
-    // {
-    //     let mut f = File::create(&css_filepath).unwrap();
-    //     f.write_all(EPUB_CSS.as_bytes()).unwrap();
-    // }
-    // {
-    //     let mut f = File::create(&book_md_filepath).unwrap();
-    //     f.write_all(text.as_bytes()).unwrap();
-    // }
-
-    // if !args.local {
-    //     std::fs::copy(&book_md_filepath, format!("./{}.md", &book_filename)).unwrap();
-    // }
-
-    // {
-    //     let output = Command::new("pandoc")
-    //         .arg(&book_md_filepath)
-    //         .arg("--css")
-    //         .arg(&css_filepath)
-    //         .arg("-o")
-    //         .arg(&book_epub_filepath)
-    //         .output()
-    //         .expect("Failed to execute pandoc: are you sure it's installed and in your path?");
-
-    //     std::io::stdout().write_all(&output.stdout).unwrap();
-    //     if !output.status.success() {
-    //         std::io::stderr().write_all(&output.stderr).unwrap();
-    //         panic!("pandoc did not succeed.");
-    //     }
-    // }
-
-    {
-        let mut f = File::create(&book_epub_filepath).unwrap();
-        f.write_all(&epub_output).unwrap();
-    }
-
-    if args.kepub {
-        let output = Command::new("kepubify")
-            .arg(&book_epub_filepath)
-            .arg("-o")
-            .arg(&book_kepub_filepath)
-            .output()
-            .expect("Failed to execute kepubify: are you sure it's installed and in your path?");
-
-        std::io::stdout().write_all(&output.stdout).unwrap();
-        if !output.status.success() {
-            std::io::stderr().write_all(&output.stderr).unwrap();
-            panic!("kepubify did not succeed.");
-        }
-    }
-
-    if args.kepub {
-        std::fs::copy(
-            book_kepub_filepath,
-            format!("./{}.kepub.epub", book_filename),
-        )
-        .unwrap();
-    } else {
-        std::fs::copy(book_epub_filepath, format!("./{}.epub", book_filename)).unwrap();
-    }
 }
