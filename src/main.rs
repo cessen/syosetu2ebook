@@ -511,13 +511,7 @@ fn main() {
             vec![("", get_chapter_links(&main_page))]
         };
 
-        if let Some(vol) = args.volume {
-            // Limit to just the single specified volume.
-            let n = vol - 1;
-            [table_of_contents[n].clone()].into()
-        } else {
-            table_of_contents
-        }
+        table_of_contents
     };
 
     println!("\nTitle: {}", title);
@@ -528,7 +522,19 @@ fn main() {
     {
         let re_chapter_number = regex::Regex::new(r#"(?ms)href=\"/[^/]*/([0-9]+)"#).unwrap();
 
-        for vol_i in 0..table_of_contents.len() {
+        // Possibly limit to just the single specified volume.
+        let vol_range = if let Some(vol) = args.volume {
+            if vol < 1 || vol > table_of_contents.len() {
+                println!("Error: there is no volume {}.", vol);
+                return; // Exit main.
+            }
+            let vol = vol - 1; // Convert to zero-based indexing.
+            vol..(vol + 1)
+        } else {
+            0..table_of_contents.len()
+        };
+
+        for vol_i in vol_range {
             println!(
                 "\nVolume \"{}\" ({}/{})",
                 table_of_contents[vol_i].0,
