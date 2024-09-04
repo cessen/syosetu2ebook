@@ -329,7 +329,7 @@ fn generate_chapter(
 
         // Optionally add furigana.
         if let Some(furigen) = furigana_generator {
-            furigen.add_html_furigana(&text)
+            furigen.add_html_furigana(&text, &[])
         } else {
             text
         }

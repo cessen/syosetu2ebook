@@ -31,13 +31,17 @@ impl FuriganaGenerator {
         }
     }
 
-    pub fn add_html_furigana(&self, text: &str) -> String {
-        add_html_furigana_skip_already_ruby(&text, &self.tokenizer)
+    pub fn add_html_furigana(&self, text: &str, known: &[char]) -> String {
+        add_html_furigana_skip_already_ruby(&text, &self.tokenizer, known)
     }
 }
 
 /// Like `add_html_furigana()`, but skips text that already has ruby on it, to it doesn't get double-ruby.
-fn add_html_furigana_skip_already_ruby(text: &str, tokenizer: &Tokenizer) -> String {
+fn add_html_furigana_skip_already_ruby(
+    text: &str,
+    tokenizer: &Tokenizer,
+    known: &[char],
+) -> String {
     static ALREADY_RUBY: Lazy<Regex> = Lazy::new(|| Regex::new(r"<ruby.*?>.*?</ruby>").unwrap());
 
     let mut new_text = String::new();
@@ -46,18 +50,23 @@ fn add_html_furigana_skip_already_ruby(text: &str, tokenizer: &Tokenizer) -> Str
         new_text.push_str(&add_html_furigana(
             &text[last_byte_index..hit.start()],
             tokenizer,
+            known,
         ));
         new_text.push_str(hit.as_str());
         last_byte_index = hit.end();
     }
 
-    new_text.push_str(&add_html_furigana(&text[last_byte_index..], tokenizer));
+    new_text.push_str(&add_html_furigana(
+        &text[last_byte_index..],
+        tokenizer,
+        known,
+    ));
 
     new_text
 }
 
 /// Adds furigana to Japanese text, using html ruby tags.
-fn add_html_furigana(text: &str, tokenizer: &Tokenizer) -> String {
+fn add_html_furigana(text: &str, tokenizer: &Tokenizer, known: &[char]) -> String {
     let mut worker = tokenizer.new_worker();
 
     worker.reset_sentence(text);
@@ -69,64 +78,104 @@ fn add_html_furigana(text: &str, tokenizer: &Tokenizer) -> String {
         let surface = t.surface();
         let kana = t.feature().split(",").nth(1).unwrap();
 
-        let (start_bytes, end_bytes) = matching_kana_ends(surface, kana);
+        let furigana_text = apply_furigana(surface, kana, known);
 
-        if kana.is_empty()
-            || start_bytes == surface.len()
-            || surface
-                .chars()
-                .map(|c| c.is_ascii() || c.is_numeric())
-                .all(|n| n)
-        {
-            new_text.push_str(surface);
-        } else {
-            let start = &surface[..start_bytes];
-            let mid = &surface[start_bytes..(surface.len() - end_bytes)];
-            let mid_kana = &kana[start_bytes..(kana.len() - end_bytes)];
-            let end = &surface[(surface.len() - end_bytes)..];
-            new_text.push_str(start);
+        for (surf, furi) in furigana_text.iter() {
+            if furi.is_empty() {
+                new_text.push_str(surf);
+                continue;
+            }
+
             new_text.push_str("<ruby>");
-            new_text.push_str(mid);
+            new_text.push_str(surf);
             new_text.push_str("<rt>");
-            new_text.push_str(mid_kana);
+            new_text.push_str(furi);
             new_text.push_str("</rt></ruby>");
-            new_text.push_str(end);
         }
     }
 
     new_text
 }
 
-/// Returns (matching_start_bytes, matching_end_bytes).
+/// Returns a segmented list of (surface, furigana) pairs.
 ///
-/// Note that the bytes are in terms of `a`'s bytes.
-///
-/// If `matching_start_bytes == a.len()` you can assume that strings are kana
-/// equivalents, and thus no ruby is needed.
-fn matching_kana_ends(a: &str, b: &str) -> (usize, usize) {
-    let mut start_bytes = 0;
-    for (ca, cb) in a.chars().zip(b.chars()) {
-        if ca == cb || is_equivalent_kana(ca, cb) {
-            start_bytes += ca.len_utf8();
-        } else {
-            break;
-        }
+/// The furigana component of a pair may be empty, indicating no
+/// furigana is needed for that surface element.
+fn apply_furigana<'a>(surface: &'a str, kana: &'a str, known: &[char]) -> Vec<(&'a str, &'a str)> {
+    let mut out = Vec::new();
+
+    if furigana_unneeded(surface, known) {
+        out.push((surface, ""));
+        return out;
     }
 
-    let mut end_bytes = 0;
-    for (ca, cb) in a.chars().rev().zip(b.chars().rev()) {
-        if ca == cb || is_equivalent_kana(ca, cb) {
-            end_bytes += ca.len_utf8();
-        } else {
-            break;
+    let mut surface = surface;
+    let mut kana = kana;
+
+    // Trim any kana from the start.
+    {
+        let mut start_s = 0;
+        let mut start_k = 0;
+        for (sc, kc) in surface.chars().zip(kana.chars()) {
+            if is_equivalent_kana(sc, kc) {
+                start_s += sc.len_utf8();
+                start_k += kc.len_utf8();
+            } else {
+                break;
+            }
         }
+        out.push((&surface[..start_s], ""));
+        surface = &surface[start_s..];
+        kana = &kana[start_k..];
     }
 
-    if (start_bytes + end_bytes) >= a.len() || (start_bytes + end_bytes) >= b.len() {
-        (a.len(), 0)
-    } else {
-        (start_bytes, end_bytes)
+    // Trim any kana from the end.
+    {
+        let mut end_s = surface.len();
+        let mut end_k = kana.len();
+        for (sc, kc) in surface.chars().rev().zip(kana.chars().rev()) {
+            if is_equivalent_kana(sc, kc) {
+                end_s -= sc.len_utf8();
+                end_k -= kc.len_utf8();
+            } else {
+                break;
+            }
+        }
+        out.push((&surface[end_s..], ""));
+        surface = &surface[..end_s];
+        kana = &kana[..end_k];
     }
+
+    // Try to uniquely match kana in the middle.
+    //
+    // This is just best-effort, and bails in any non-trivial cases.
+    while let Some((si, sc)) = surface.char_indices().find(|(_, c)| is_kana(*c)) {
+        // If there's more than one match, bail.
+        let equivalent_kana_count = kana
+            .chars()
+            .map(|c| is_equivalent_kana(c, sc))
+            .fold(0usize, |count, hit| count + hit as usize);
+        if equivalent_kana_count != 1 {
+            break;
+        }
+
+        // Find the one match.
+        let (ki, kc) = kana
+            .char_indices()
+            .find(|(_, c)| is_equivalent_kana(sc, *c))
+            .unwrap();
+
+        // Insert the segments.
+        out.insert(out.len() - 2, (&surface[..si], &kana[..ki]));
+        out.insert(out.len() - 2, (&surface[si..(si + sc.len_utf8())], ""));
+        surface = &surface[(si + sc.len_utf8())..];
+        kana = &kana[(ki + kc.len_utf8())..];
+    }
+
+    // Left over.
+    out.insert(out.len() - 2, (surface, kana));
+
+    out.iter().filter(|(s, _)| !s.is_empty()).copied().collect()
 }
 
 /// Due to the way this is used, this isn't meant to be exact, but instead
@@ -191,6 +240,12 @@ pub fn normalize_kana(c: char) -> Option<char> {
     Some(katakana_to_hiragana(c).unwrap_or(c))
 }
 
+/// Returns true if furigana defininitely isn't needed.
+pub fn furigana_unneeded(text: &str, known: &[char]) -> bool {
+    text.chars()
+        .all(|c| is_kana(c) || c.is_ascii() || c.is_numeric() || known.contains(&c))
+}
+
 pub fn hiragana_to_katakana(c: char) -> Option<char> {
     let c = c as u32;
     if c >= HIRAGANA && c < (HIRAGANA + KANA_COUNT) {
@@ -214,23 +269,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matching_kana_ends_01() {
+    fn apply_furigana_01() {
         let surface = "へぇ";
         let kana = "ヘー";
-        let (start_bytes, end_bytes) = matching_kana_ends(surface, kana);
+        let pairs = apply_furigana(surface, kana, &[]);
 
-        assert_eq!(6, start_bytes);
-        assert_eq!(0, end_bytes);
+        assert_eq!(&[("へぇ", "")], &pairs[..]);
     }
 
     #[test]
-    fn matching_kana_ends_02() {
+    fn apply_furigana_02() {
         let surface = "へぇー";
         let kana = "ヘー";
-        let (start_bytes, end_bytes) = matching_kana_ends(surface, kana);
+        let pairs = apply_furigana(surface, kana, &[]);
 
-        assert_eq!(9, start_bytes);
-        assert_eq!(0, end_bytes);
+        assert_eq!(&[("へぇー", "")], &pairs[..]);
+    }
+
+    #[test]
+    fn apply_furigana_03() {
+        let surface = "へ";
+        let kana = "え";
+        let pairs = apply_furigana(surface, kana, &[]);
+
+        assert_eq!(&[("へ", "")], &pairs[..]);
+    }
+
+    #[test]
+    fn apply_furigana_04() {
+        let surface = "食べる";
+        let kana = "タベル";
+        let pairs = apply_furigana(surface, kana, &[]);
+
+        assert_eq!(&[("食", "タ"), ("べる", "")], &pairs[..]);
+    }
+
+    #[test]
+    fn apply_furigana_05() {
+        let surface = "流れ出す";
+        let kana = "ながれだす";
+        let pairs = apply_furigana(surface, kana, &[]);
+
+        assert_eq!(
+            &[("流", "なが"), ("れ", ""), ("出", "だ"), ("す", "")],
+            &pairs[..]
+        );
+    }
+
+    #[test]
+    fn apply_furigana_06() {
+        let surface = "物の怪";
+        let kana = "もののけ";
+        let pairs = apply_furigana(surface, kana, &[]);
+
+        assert_eq!(&[("物の怪", "もののけ")], &pairs[..]);
     }
 
     #[test]
