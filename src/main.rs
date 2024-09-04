@@ -594,6 +594,9 @@ fn main() {
                 vol_i + 1,
                 table_of_contents.len(),
             );
+            if let Some((start, end)) = args.chapters.as_ref().map(|r| parse_number_range(r)) {
+                println!("Chapter range: {}-{}", start, end);
+            };
 
             // Download volume chapters and build volume.
             let volume = {
