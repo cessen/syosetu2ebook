@@ -377,7 +377,6 @@ fn generate_chapter(
 
 #[derive(Clone, Debug)]
 struct Args {
-    // local: bool,
     kepub: bool,
     furigana: bool,
     volume: Option<usize>,
@@ -389,15 +388,9 @@ impl Args {
     fn parse() -> Args {
         use bpaf::{construct, positional, short, Parser};
 
-        // let local = short('l')
-        //     .long("local")
-        //     .help("Just convert a local markdown file instead of downloading anything.")
-        //     .switch();
         let kepub = short('k')
             .long("kepub")
-            .help(
-                "Convert to Kobo kepub instead of plain epub (requires Kepubify to be installed).",
-            )
+            .help("Additionally generate a Kobo kepub file (requires Kepubify to be installed).")
             .switch();
         let furigana = short('f')
             .long("furigana")
@@ -405,18 +398,17 @@ impl Args {
             .switch();
         let volume = short('v')
             .long("volume")
-            .help("For books with multiple volumes, this specifies the volume to download.")
-            .argument::<usize>("VOLUME")
+            .help("For books with multiple volumes, only download the Nth volume.")
+            .argument::<usize>("N")
             .optional();
         let title = short('t')
         .long("title")
         .help("Specify an alternate title to use (sometimes the titles have extra non-title info in them on the site).")
         .argument::<String>("TITLE").optional();
-        let book = positional::<String>("BOOK")
-        .help("The full url of book's main page on syosetu.com, or path to markdown file if using -l flag.");
+        let book = positional::<String>("BOOK_URL")
+            .help("The full url of book's main page on syosetu.com.");
 
         construct!(Args {
-            // local,
             kepub,
             furigana,
             volume,
@@ -485,10 +477,6 @@ fn main() {
         author = author.replace("</a>", "").trim().into();
         author
     };
-    // let summary = {
-    //     let re = regex::Regex::new(r#"(?ms)<div id=\"novel_ex\">(.*?)</div>"#).unwrap();
-    //     maybe_group(re.captures(&main_page), 1).trim()
-    // };
 
     // A vector of (volume_title, chapter_links), where the chapter links are
     // in `<a href="url">title</a>` format.
@@ -534,7 +522,6 @@ fn main() {
 
     println!("\nTitle: {}", title);
     println!("Author: {}", author);
-    // println!("Summary: {}", summary);
     println!("Volumes: {}", table_of_contents.len());
 
     // Download chapter pages and generate books.
