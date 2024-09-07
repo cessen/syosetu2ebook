@@ -4,8 +4,7 @@ use std::{
 };
 
 use lz4_flex::frame::FrameDecoder;
-use once_cell::sync::Lazy;
-use regex::Regex;
+use quick_xml::events::Event;
 use vibrato::{Dictionary, Tokenizer};
 
 const DICT: &[u8] = include_bytes!("../dictionary/system.dic.lz4");
@@ -46,10 +45,6 @@ fn add_html_furigana_skip_already_ruby(
     tokenizer: &Tokenizer,
     known: &[char],
 ) -> String {
-    use quick_xml::{events::Event, Reader};
-
-    static ALREADY_RUBY: Lazy<Regex> = Lazy::new(|| Regex::new(r"<ruby.*?>.*?</ruby>").unwrap());
-
     let mut reader = quick_xml::Reader::from_str(text);
 
     let mut new_text = String::new();
@@ -97,8 +92,6 @@ fn add_html_furigana_skip_already_ruby(
 /// we're not missing anything.  But for some reason quick_xml doesn't provide
 /// that information.
 fn write_xml(text: &mut String, event: &quick_xml::events::Event) {
-    use quick_xml::events::Event;
-
     match event {
         Event::Start(e) => {
             text.push_str("<");

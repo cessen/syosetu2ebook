@@ -322,9 +322,7 @@ name = "furigana_gen"
 version = "0.1.0"
 dependencies = [
  "lz4_flex",
- "once_cell",
  "quick-xml",
- "regex",
  "vibrato",
 ]
 
