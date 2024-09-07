@@ -36,33 +36,122 @@ impl FuriganaGenerator {
     }
 }
 
+fn to_str<B: std::ops::Deref<Target = [u8]>>(bytes: &B) -> &str {
+    std::str::from_utf8(&bytes.deref()).unwrap()
+}
+
 /// Like `add_html_furigana()`, but skips text that already has ruby on it, to it doesn't get double-ruby.
 fn add_html_furigana_skip_already_ruby(
     text: &str,
     tokenizer: &Tokenizer,
     known: &[char],
 ) -> String {
+    use quick_xml::{events::Event, Reader};
+
     static ALREADY_RUBY: Lazy<Regex> = Lazy::new(|| Regex::new(r"<ruby.*?>.*?</ruby>").unwrap());
 
+    let mut reader = quick_xml::Reader::from_str(text);
+
     let mut new_text = String::new();
-    let mut last_byte_index = 0;
-    for hit in ALREADY_RUBY.find_iter(text) {
-        new_text.push_str(&add_html_furigana(
-            &text[last_byte_index..hit.start()],
-            tokenizer,
-            known,
-        ));
-        new_text.push_str(hit.as_str());
-        last_byte_index = hit.end();
+    let mut rubys: i32 = 0;
+
+    loop {
+        match reader.read_event() {
+            Err(e) => panic!("Error at position {}: {:?}", reader.error_position(), e),
+            Ok(Event::Eof) => break,
+
+            Ok(Event::Start(e)) => {
+                if e.name().into_inner() == b"ruby" {
+                    rubys += 1;
+                }
+                write_xml(&mut new_text, &Event::Start(e));
+            }
+
+            Ok(Event::End(e)) => {
+                if e.name().into_inner() == b"ruby" {
+                    rubys -= 1;
+                }
+                write_xml(&mut new_text, &Event::End(e));
+            }
+
+            Ok(Event::Text(e)) => {
+                if rubys <= 0 {
+                    new_text.push_str(&add_html_furigana(to_str(&e), tokenizer, known));
+                } else {
+                    write_xml(&mut new_text, &Event::Text(e));
+                }
+            }
+
+            // All other events, just re-write them verbatim.
+            Ok(e) => write_xml(&mut new_text, &e),
+        }
     }
 
-    new_text.push_str(&add_html_furigana(
-        &text[last_byte_index..],
-        tokenizer,
-        known,
-    ));
-
     new_text
+}
+
+/// Takes an xml event and writes it verbatim to the given string.
+///
+/// NOTE: really what we want is for the events to provide their byte index range
+/// in the original text, so we could just write that, and even double-check that
+/// we're not missing anything.  But for some reason quick_xml doesn't provide
+/// that information.
+fn write_xml(text: &mut String, event: &quick_xml::events::Event) {
+    use quick_xml::events::Event;
+
+    match event {
+        Event::Start(e) => {
+            text.push_str("<");
+            text.push_str(to_str(e));
+            text.push_str(">");
+        }
+
+        Event::End(e) => {
+            text.push_str("</");
+            text.push_str(to_str(e));
+            text.push_str(">");
+        }
+
+        Event::Empty(e) => {
+            text.push_str("<");
+            text.push_str(to_str(e));
+            text.push_str("/>");
+        }
+
+        Event::CData(e) => {
+            text.push_str("<![CDATA[");
+            text.push_str(to_str(e));
+            text.push_str("]]>");
+        }
+
+        Event::Comment(e) => {
+            text.push_str("<!--");
+            text.push_str(to_str(e));
+            text.push_str("-->");
+        }
+
+        Event::Decl(e) => {
+            text.push_str("<?");
+            text.push_str(to_str(e));
+            text.push_str("?>");
+        }
+
+        Event::PI(e) => {
+            text.push_str("<?");
+            text.push_str(to_str(e));
+            text.push_str("?>");
+        }
+
+        Event::DocType(e) => {
+            text.push_str("<!DOCTYPE");
+            text.push_str(to_str(e));
+            text.push_str(">");
+        }
+
+        Event::Text(e) => text.push_str(to_str(e)),
+
+        _ => unreachable!(),
+    }
 }
 
 /// Adds furigana to Japanese text, using html ruby tags.
@@ -362,5 +451,20 @@ mod tests {
         assert_eq!("助詞-接続助詞,テ", worker.token(1).feature());
         assert_eq!("いる", worker.token(2).surface());
         assert_eq!("動詞-非自立可能,イル", worker.token(2).feature());
+    }
+
+    #[test]
+    fn add_html_furigana_01() {
+        let gen = FuriganaGenerator::new();
+
+        let text = gen.add_html_furigana(
+            r#"<sup class="食う">食べる</sup>のは<ruby>良</ruby>いね！<hi />"#,
+            &[],
+        );
+
+        assert_eq!(
+            text,
+            r#"<sup class="食う"><ruby>食<rt>タ</rt></ruby>べる</sup>のは<ruby>良</ruby>いね！<hi />"#
+        );
     }
 }

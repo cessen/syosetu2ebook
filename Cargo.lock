@@ -323,6 +323,7 @@ version = "0.1.0"
 dependencies = [
  "lz4_flex",
  "once_cell",
+ "quick-xml",
  "regex",
  "vibrato",
 ]
@@ -561,6 +562,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e719e8df665df0d1c8fbfd238015744736151d4445ec0836b8e628aae103b77"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.36.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96a05e2e8efddfa51a84ca47cec303fac86c8541b686d37cac5efc0e094417bc"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -856,6 +866,7 @@ dependencies = [
  "bpaf",
  "epub-builder",
  "furigana_gen",
+ "quick-xml",
  "regex",
  "tempfile",
  "ureq",
