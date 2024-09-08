@@ -347,8 +347,9 @@ pub fn normalize_kana(c: char) -> Option<char> {
 
 /// Returns true if furigana defininitely isn't needed.
 pub fn furigana_unneeded(text: &str, exclude_kanji: &HashSet<char>) -> bool {
-    text.chars()
-        .all(|c| is_kana(c) || c.is_ascii() || c.is_numeric() || exclude_kanji.contains(&c))
+    text.chars().all(|c| {
+        is_kana(c) || c.is_ascii() || c.is_numeric() || c == '々' || exclude_kanji.contains(&c)
+    })
 }
 
 pub fn hiragana_to_katakana(c: char) -> Option<char> {
