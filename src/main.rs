@@ -345,7 +345,7 @@ fn generate_chapter(
 
         // Optionally add furigana.
         if let Some(furigen) = furigana_generator {
-            furigen.add_html_furigana(&text, &[])
+            furigen.add_html_furigana(&text)
         } else {
             text
         }
@@ -395,6 +395,7 @@ fn generate_chapter(
 struct Args {
     kepub: bool,
     furigana: bool,
+    furigana_exclude: Option<usize>,
     volume: Option<usize>,
     chapters: Option<String>,
     title: Option<String>,
@@ -403,7 +404,7 @@ struct Args {
 
 impl Args {
     fn parse() -> Args {
-        use bpaf::{construct, positional, short, Parser};
+        use bpaf::{construct, long, positional, short, Parser};
 
         let kepub = short('k')
             .long("kepub")
@@ -413,6 +414,10 @@ impl Args {
             .long("furigana")
             .help("Auto-generate furigana on kanji in the text.")
             .switch();
+        let furigana_exclude = long("furigana-exclude")
+            .help("When auto-generating furigana, exclude words made up of the first N most common kanji.")
+            .argument::<usize>("N")
+            .optional();
         let volume = short('v')
             .long("volume")
             .help("For books with multiple volumes, only download the Nth volume.")
@@ -433,6 +438,7 @@ impl Args {
         construct!(Args {
             kepub,
             furigana,
+            furigana_exclude,
             volume,
             chapters,
             title,
@@ -477,7 +483,7 @@ fn main() {
     }
 
     let furigana_generator = if args.furigana {
-        Some(FuriganaGenerator::new())
+        Some(FuriganaGenerator::new(args.furigana_exclude.unwrap_or(0)))
     } else {
         None
     };

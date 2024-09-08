@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     // fs::File,
     io::{Cursor, Read},
 };
@@ -7,14 +8,22 @@ use lz4_flex::frame::FrameDecoder;
 use quick_xml::events::Event;
 use vibrato::{Dictionary, Tokenizer};
 
-const DICT: &[u8] = include_bytes!("../dictionary/system.dic.lz4");
+// Include KANJI_FREQ, a frequency-ordered array of kanji characters.
+include!(concat!(env!("OUT_DIR"), "/kanji_freq_inc.rs"));
+
+const DICT: &[u8] = include_bytes!("../data/dictionary/system.dic.lz4");
 
 pub struct FuriganaGenerator {
     tokenizer: Tokenizer,
+    exclude_kanji: HashSet<char>,
 }
 
 impl FuriganaGenerator {
-    pub fn new() -> Self {
+    // `exclude_count`: exclude the N most frequent kanji from furigana.
+    // Specifically, words made up *entirely* of those kanji will be excluded.
+    // If a word has some kanji that aren't in that set, even if it also has
+    // some that are, it will still get furigana.
+    pub fn new(exclude_count: usize) -> Self {
         let dict = {
             // Note: we could just pass the decoder straight to `Dictionary::read()`
             // below, and it would work.  However, that ends up being slower than
@@ -25,13 +34,23 @@ impl FuriganaGenerator {
 
             Dictionary::read(Cursor::new(&data)).unwrap()
         };
+
+        let exclude_kanji = {
+            let mut set = HashSet::new();
+            for &c in KANJI_FREQ.iter().take(exclude_count) {
+                set.insert(c);
+            }
+            set
+        };
+
         Self {
             tokenizer: Tokenizer::new(dict),
+            exclude_kanji: exclude_kanji,
         }
     }
 
-    pub fn add_html_furigana(&self, text: &str, known: &[char]) -> String {
-        add_html_furigana_skip_already_ruby(&text, &self.tokenizer, known)
+    pub fn add_html_furigana(&self, text: &str) -> String {
+        add_html_furigana_skip_already_ruby(&text, &self.tokenizer, &self.exclude_kanji)
     }
 }
 
@@ -43,7 +62,7 @@ fn to_str<B: std::ops::Deref<Target = [u8]>>(bytes: &B) -> &str {
 fn add_html_furigana_skip_already_ruby(
     text: &str,
     tokenizer: &Tokenizer,
-    known: &[char],
+    exclude_kanji: &HashSet<char>,
 ) -> String {
     let mut reader = quick_xml::Reader::from_str(text);
 
@@ -71,7 +90,7 @@ fn add_html_furigana_skip_already_ruby(
 
             Ok(Event::Text(e)) => {
                 if rubys <= 0 {
-                    new_text.push_str(&add_html_furigana(to_str(&e), tokenizer, known));
+                    new_text.push_str(&add_html_furigana(to_str(&e), tokenizer, exclude_kanji));
                 } else {
                     write_xml(&mut new_text, &Event::Text(e));
                 }
@@ -148,7 +167,7 @@ fn write_xml(text: &mut String, event: &quick_xml::events::Event) {
 }
 
 /// Adds furigana to Japanese text, using html ruby tags.
-fn add_html_furigana(text: &str, tokenizer: &Tokenizer, known: &[char]) -> String {
+fn add_html_furigana(text: &str, tokenizer: &Tokenizer, exclude_kanji: &HashSet<char>) -> String {
     let mut worker = tokenizer.new_worker();
 
     worker.reset_sentence(text);
@@ -160,7 +179,7 @@ fn add_html_furigana(text: &str, tokenizer: &Tokenizer, known: &[char]) -> Strin
         let surface = t.surface();
         let kana = t.feature().split(",").nth(1).unwrap();
 
-        let furigana_text = apply_furigana(surface, kana, known);
+        let furigana_text = apply_furigana(surface, kana, exclude_kanji);
 
         for (surf, furi) in furigana_text.iter() {
             if furi.is_empty() {
@@ -183,10 +202,14 @@ fn add_html_furigana(text: &str, tokenizer: &Tokenizer, known: &[char]) -> Strin
 ///
 /// The furigana component of a pair may be empty, indicating no
 /// furigana is needed for that surface element.
-fn apply_furigana<'a>(surface: &'a str, kana: &'a str, known: &[char]) -> Vec<(&'a str, &'a str)> {
+fn apply_furigana<'a>(
+    surface: &'a str,
+    kana: &'a str,
+    exclude_kanji: &HashSet<char>,
+) -> Vec<(&'a str, &'a str)> {
     let mut out = Vec::new();
 
-    if furigana_unneeded(surface, known) {
+    if furigana_unneeded(surface, exclude_kanji) {
         out.push((surface, ""));
         return out;
     }
@@ -323,9 +346,9 @@ pub fn normalize_kana(c: char) -> Option<char> {
 }
 
 /// Returns true if furigana defininitely isn't needed.
-pub fn furigana_unneeded(text: &str, known: &[char]) -> bool {
+pub fn furigana_unneeded(text: &str, exclude_kanji: &HashSet<char>) -> bool {
     text.chars()
-        .all(|c| is_kana(c) || c.is_ascii() || c.is_numeric() || known.contains(&c))
+        .all(|c| is_kana(c) || c.is_ascii() || c.is_numeric() || exclude_kanji.contains(&c))
 }
 
 pub fn hiragana_to_katakana(c: char) -> Option<char> {
