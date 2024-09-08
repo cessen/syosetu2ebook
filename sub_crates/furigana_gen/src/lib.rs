@@ -1,3 +1,5 @@
+mod learner;
+
 use std::{
     collections::HashSet,
     // fs::File,
@@ -8,6 +10,8 @@ use lz4_flex::frame::FrameDecoder;
 use quick_xml::events::Event;
 use vibrato::{Dictionary, Tokenizer};
 
+use learner::Learner;
+
 // Include KANJI_FREQ, a frequency-ordered array of kanji characters.
 include!(concat!(env!("OUT_DIR"), "/kanji_freq_inc.rs"));
 
@@ -16,6 +20,7 @@ const DICT: &[u8] = include_bytes!("../data/dictionary/system.dic.lz4");
 pub struct FuriganaGenerator {
     tokenizer: Tokenizer,
     exclude_kanji: HashSet<char>,
+    learner: Learner,
 }
 
 impl FuriganaGenerator {
@@ -23,7 +28,7 @@ impl FuriganaGenerator {
     // Specifically, words made up *entirely* of those kanji will be excluded.
     // If a word has some kanji that aren't in that set, even if it also has
     // some that are, it will still get furigana.
-    pub fn new(exclude_count: usize) -> Self {
+    pub fn new(exclude_count: usize, learn_mode: bool) -> Self {
         let dict = {
             // Note: we could just pass the decoder straight to `Dictionary::read()`
             // below, and it would work.  However, that ends up being slower than
@@ -46,11 +51,17 @@ impl FuriganaGenerator {
         Self {
             tokenizer: Tokenizer::new(dict),
             exclude_kanji: exclude_kanji,
+            learner: Learner::new(if learn_mode { 5 } else { usize::MAX }),
         }
     }
 
-    pub fn add_html_furigana(&self, text: &str) -> String {
-        add_html_furigana_skip_already_ruby(&text, &self.tokenizer, &self.exclude_kanji)
+    pub fn add_html_furigana(&mut self, text: &str) -> String {
+        add_html_furigana_skip_already_ruby(
+            &text,
+            &self.tokenizer,
+            &self.exclude_kanji,
+            &mut self.learner,
+        )
     }
 }
 
@@ -63,6 +74,7 @@ fn add_html_furigana_skip_already_ruby(
     text: &str,
     tokenizer: &Tokenizer,
     exclude_kanji: &HashSet<char>,
+    learner: &mut Learner,
 ) -> String {
     let mut reader = quick_xml::Reader::from_str(text);
 
@@ -90,7 +102,12 @@ fn add_html_furigana_skip_already_ruby(
 
             Ok(Event::Text(e)) => {
                 if rubys <= 0 {
-                    new_text.push_str(&add_html_furigana(to_str(&e), tokenizer, exclude_kanji));
+                    new_text.push_str(&add_html_furigana(
+                        to_str(&e),
+                        tokenizer,
+                        exclude_kanji,
+                        learner,
+                    ));
                 } else {
                     write_xml(&mut new_text, &Event::Text(e));
                 }
@@ -167,7 +184,12 @@ fn write_xml(text: &mut String, event: &quick_xml::events::Event) {
 }
 
 /// Adds furigana to Japanese text, using html ruby tags.
-fn add_html_furigana(text: &str, tokenizer: &Tokenizer, exclude_kanji: &HashSet<char>) -> String {
+fn add_html_furigana(
+    text: &str,
+    tokenizer: &Tokenizer,
+    exclude_kanji: &HashSet<char>,
+    learner: &mut Learner,
+) -> String {
     let mut worker = tokenizer.new_worker();
 
     worker.reset_sentence(text);
@@ -177,6 +199,15 @@ fn add_html_furigana(text: &str, tokenizer: &Tokenizer, exclude_kanji: &HashSet<
     for i in 0..worker.num_tokens() {
         let t = worker.token(i);
         let surface = t.surface();
+
+        let needs_help = learner.needs_help(surface);
+        learner.record(surface);
+
+        if !needs_help {
+            new_text.push_str(surface);
+            continue;
+        }
+
         let kana = t.feature().split(",").nth(1).unwrap();
 
         let furigana_text = apply_furigana(surface, kana, exclude_kanji);

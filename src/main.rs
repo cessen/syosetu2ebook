@@ -336,15 +336,15 @@ fn ascii_to_fullwidth(text: &str) -> String {
 fn generate_chapter(
     chapter_html_in: &str,
     title_tag: &str,
-    furigana_generator: Option<&FuriganaGenerator>,
+    mut furigana_generator: Option<&mut FuriganaGenerator>,
 ) -> Chapter {
     let mut text = String::new();
 
-    let process = |text: &str| -> String {
+    let mut process = |text: &str| -> String {
         let text = common_subs(text);
 
         // Optionally add furigana.
-        if let Some(furigen) = furigana_generator {
+        if let Some(ref mut furigen) = furigana_generator {
             furigen.add_html_furigana(&text)
         } else {
             text
@@ -396,6 +396,7 @@ struct Args {
     kepub: bool,
     furigana: bool,
     furigana_exclude: Option<usize>,
+    furigana_learn_mode: bool,
     volume: Option<usize>,
     chapters: Option<String>,
     title: Option<String>,
@@ -418,6 +419,9 @@ impl Args {
             .help("When auto-generating furigana, exclude words made up of the first N most common kanji.")
             .argument::<usize>("N")
             .optional();
+        let furigana_learn_mode = long("furigana-learn-mode")
+            .help("When auto-generating furigana, put it on words in a spaced-repitition style, so words that show up frequenly loose their furigana as the book goes on.")
+            .switch();
         let volume = short('v')
             .long("volume")
             .help("For books with multiple volumes, only download the Nth volume.")
@@ -439,6 +443,7 @@ impl Args {
             kepub,
             furigana,
             furigana_exclude,
+            furigana_learn_mode,
             volume,
             chapters,
             title,
@@ -482,8 +487,11 @@ fn main() {
         return;
     }
 
-    let furigana_generator = if args.furigana {
-        Some(FuriganaGenerator::new(args.furigana_exclude.unwrap_or(0)))
+    let mut furigana_generator = if args.furigana {
+        Some(FuriganaGenerator::new(
+            args.furigana_exclude.unwrap_or(0),
+            args.furigana_learn_mode,
+        ))
     } else {
         None
     };
@@ -636,7 +644,7 @@ fn main() {
                     chapters.push(generate_chapter(
                         &chapter_html,
                         "h1",
-                        furigana_generator.as_ref(),
+                        furigana_generator.as_mut(),
                     ));
                 }
 
