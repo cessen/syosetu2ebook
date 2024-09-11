@@ -42,22 +42,23 @@ for each volume.  If you want just a specific volume, you can specify that with
 ./syosetu2ebook -v 3 http://ncode.syosetu.com/n6316bn
 ```
 
+For books that are just one long stream of a huge number of chapters, you can
+limit which chapters are downloaded as well.  For example, to download just
+volume 2, chapters 5 through 10:
+
+```bash
+./syosetu2ebook -v 2 -c 5-10 http://ncode.syosetu.com/n6316bn
+```
+
 You can also optionally have furigana automatically generated (not 100%
-accurate, but is very good) by passing the `-f` flag:
+accurate, but is pretty good) by passing the `-f` flag:
 
 ```bash
 ./syosetu2ebook -f http://ncode.syosetu.com/n6316bn
 ```
 
-If you have [Kepubify](https://pgaskin.net/kepubify/) installed and in your
-executable path, you can also pass the `-k` flag to generate Kobo kepub files:
-
-```bash
-./syosetu2ebook -k <main_url>
-```
-
-(Note that this is just a convenience.  You get exactly the same result by just
-running Kepubify on the generated epub file yourself.)
+There are additional features as well.  Please see the command line help
+(`./syosetu2ebook --help`) for more details.
 
 
 ## License
