@@ -397,6 +397,7 @@ struct Args {
     furigana: bool,
     furigana_exclude: Option<usize>,
     furigana_learn_mode: bool,
+    furigana_word_stats: bool,
     volume: Option<usize>,
     chapters: Option<String>,
     title: Option<String>,
@@ -422,6 +423,9 @@ impl Args {
         let furigana_learn_mode = long("furigana-learn-mode")
             .help("When auto-generating furigana, put it on words in a spaced-repitition style, so words that show up frequenly loose their furigana as the book goes on.")
             .switch();
+        let furigana_word_stats = long("furigana-word-stats")
+            .help("When auto-generating furigana is enabled, this will output a word stats file showing all the words parsed along with some statistics about them.")
+            .switch();
         let volume = short('v')
             .long("volume")
             .help("For books with multiple volumes, only download the Nth volume.")
@@ -444,6 +448,7 @@ impl Args {
             furigana,
             furigana_exclude,
             furigana_learn_mode,
+            furigana_word_stats,
             volume,
             chapters,
             title,
@@ -712,5 +717,29 @@ fn main() {
                 }
             }
         }
-    };
+    }
+
+    // Save word stats to a text file.
+    if args.furigana_word_stats {
+        if let Some(furigen) = furigana_generator {
+            // Output filename.
+            let filename: String = {
+                let filename = format!("{} - word stats.txt", title);
+                filename.replace("/", "").replace("\\", "").trim().into()
+            };
+
+            let (total_words, stats) = furigen.word_stats();
+
+            let mut f = File::create(&filename).unwrap();
+            write!(&mut f, "Text length in words: {}\n\n", total_words).unwrap();
+            for (word, max_distance, times_seen) in stats.iter() {
+                write!(
+                    &mut f,
+                    "{}        distance {} | seen {}\n",
+                    word, max_distance, times_seen
+                )
+                .unwrap();
+            }
+        }
+    }
 }
