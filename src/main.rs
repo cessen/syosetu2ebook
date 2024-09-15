@@ -336,7 +336,7 @@ fn ascii_to_fullwidth(text: &str) -> String {
 fn generate_chapter(
     chapter_html_in: &str,
     title_tag: &str,
-    mut furigana_generator: Option<&mut FuriganaGenerator>,
+    mut furgen_session: Option<&mut furigana_gen::Session>,
 ) -> Chapter {
     let mut text = String::new();
 
@@ -344,8 +344,8 @@ fn generate_chapter(
         let text = common_subs(text);
 
         // Optionally add furigana.
-        if let Some(ref mut furigen) = furigana_generator {
-            furigen.add_html_furigana(&text)
+        if let Some(ref mut session) = furgen_session {
+            session.add_html_furigana(&text)
         } else {
             text
         }
@@ -492,11 +492,9 @@ fn main() {
         return;
     }
 
-    let mut furigana_generator = if args.furigana {
-        Some(FuriganaGenerator::new(
-            args.furigana_exclude.unwrap_or(0),
-            args.furigana_learn_mode,
-        ))
+    let furigana_generator = FuriganaGenerator::new(args.furigana_exclude.unwrap_or(0));
+    let mut furigen_session = if args.furigana {
+        Some(furigana_generator.new_session(args.furigana_learn_mode))
     } else {
         None
     };
@@ -649,7 +647,7 @@ fn main() {
                     chapters.push(generate_chapter(
                         &chapter_html,
                         "h1",
-                        furigana_generator.as_mut(),
+                        furigen_session.as_mut(),
                     ));
                 }
 
@@ -721,14 +719,14 @@ fn main() {
 
     // Save word stats to a text file.
     if args.furigana_word_stats {
-        if let Some(furigen) = furigana_generator {
+        if let Some(session) = furigen_session {
             // Output filename.
             let filename: String = {
                 let filename = format!("{} - word stats.txt", title);
                 filename.replace("/", "").replace("\\", "").trim().into()
             };
 
-            let (total_words, stats) = furigen.word_stats();
+            let (total_words, stats) = session.word_stats();
 
             let mut f = File::create(&filename).unwrap();
             write!(&mut f, "Text length in words: {}\n\n", total_words).unwrap();
