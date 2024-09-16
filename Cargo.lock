@@ -341,7 +341,7 @@ dependencies = [
 [[package]]
 name = "furigana_gen"
 version = "0.1.0"
-source = "git+https://github.com/cessen/furigana_gen.git?branch=main#4b48f868243c62afe27ff529ad0e9e2598490e98"
+source = "git+https://github.com/cessen/furigana_gen.git?branch=main#0266341f999926ab45ec45c812149c71c708e461"
 dependencies = [
  "fnv",
  "lz4_flex",
