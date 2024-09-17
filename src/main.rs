@@ -492,7 +492,7 @@ fn main() {
         return;
     }
 
-    let furigana_generator = FuriganaGenerator::new(args.furigana_exclude.unwrap_or(0));
+    let furigana_generator = FuriganaGenerator::new(args.furigana_exclude.unwrap_or(0), true);
     let mut furigen_session = if args.furigana {
         Some(furigana_generator.new_session(args.furigana_learn_mode))
     } else {
