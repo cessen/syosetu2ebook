@@ -363,23 +363,35 @@ fn generate_chapter(
         title_tag
     ));
 
-    let re_text = regex::Regex::new(r#"(?ms)<div class=\"p-novel__body[^>]*>(.*?)</div>"#).unwrap();
-    let chapter_text = maybe_group(re_text.captures(chapter_html_in), 1).trim();
-
+    let re_text =
+        regex::Regex::new(r#"(?ms)<div class=\"[^"]*p-novel__text[^>]*>(.*?)</div>"#).unwrap();
     let re_paragraph = regex::Regex::new(r#"(?ms)<p[^>]*>(.*?)</p>"#).unwrap();
-    for paragraph in re_paragraph
-        .captures_iter(chapter_text)
-        .map(|c| c.get(1).map(|m| m.as_str()).unwrap_or("").trim())
-    {
-        if paragraph == "<br>" || paragraph == "<br/>" || paragraph == "<br />" {
-            // We do this because authors on syosetu.com really love
-            // to overuse <br/> tags.  Combined with the styling of
-            // p.blank, this keeps the spacing not completely crazy.
-            text.push_str("<p class=\"blank\"></p>\n");
-        } else if paragraph != "" {
-            text.push_str("<p>");
-            text.push_str(&process(paragraph));
-            text.push_str("</p>\n");
+
+    let chapter_texts: Vec<_> = re_text
+        .captures_iter(chapter_html_in)
+        .map(|c| maybe_group(Some(c), 1).trim())
+        .collect();
+
+    for (i, chapter_text) in chapter_texts.iter().enumerate() {
+        for paragraph in re_paragraph
+            .captures_iter(chapter_text)
+            .map(|c| c.get(1).map(|m| m.as_str()).unwrap_or("").trim())
+        {
+            if paragraph == "<br>" || paragraph == "<br/>" || paragraph == "<br />" {
+                // We do this because authors on syosetu.com really love
+                // to overuse <br/> tags.  Combined with the styling of
+                // p.blank, this keeps the spacing not completely crazy.
+                text.push_str("<p class=\"blank\"></p>\n");
+            } else if paragraph != "" {
+                text.push_str("<p>");
+                text.push_str(&process(paragraph));
+                text.push_str("</p>\n");
+            }
+        }
+
+        // If it's not the last one, add a separator.
+        if (i + 1) < chapter_texts.len() {
+            text.push_str("<hr/>\n");
         }
     }
 
