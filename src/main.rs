@@ -260,6 +260,12 @@ div.column{ display: inline-block; vertical-align: top; width: 50%; }
     padding 1.0em;
     border: 1px solid #000;
 }
+
+rt span.pitch {
+    color: #777;
+    margin-bottom: 0.25em;
+    font-size: 0.65em;
+}
 "#;
 
 fn get_page(url: &str) -> Result<String, ureq::Error> {
@@ -405,6 +411,7 @@ fn generate_chapter(
 struct Args {
     kepub: bool,
     furigana: bool,
+    furigana_pitch_accent: bool,
     furigana_exclude: Option<usize>,
     furigana_learn_mode: bool,
     furigana_word_stats: bool,
@@ -425,6 +432,9 @@ impl Args {
         let furigana = short('f')
             .long("furigana")
             .help("Auto-generate furigana on kanji in the text.")
+            .switch();
+        let furigana_pitch_accent = long("furigana-pitch-accent")
+            .help("When adding furigana to a word, include a numerical indicator of the word's pitch accent if available.")
             .switch();
         let furigana_exclude = long("furigana-exclude")
             .help("When auto-generating furigana, exclude words made up of the first N most common kanji.")
@@ -456,6 +466,7 @@ impl Args {
         construct!(Args {
             kepub,
             furigana,
+            furigana_pitch_accent,
             furigana_exclude,
             furigana_learn_mode,
             furigana_word_stats,
@@ -502,7 +513,11 @@ fn main() {
         return;
     }
 
-    let furigana_generator = FuriganaGenerator::new(args.furigana_exclude.unwrap_or(0), true);
+    let furigana_generator = FuriganaGenerator::new(
+        args.furigana_exclude.unwrap_or(0),
+        true,
+        args.furigana_pitch_accent,
+    );
     let mut furigen_session = if args.furigana {
         Some(furigana_generator.new_session(args.furigana_learn_mode))
     } else {
