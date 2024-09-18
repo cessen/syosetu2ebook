@@ -351,7 +351,7 @@ fn generate_chapter(
         }
     };
 
-    let re_title = regex::Regex::new(r#"(?ms)<p class=\"novel_subtitle\">(.*?)</p>"#).unwrap();
+    let re_title = regex::Regex::new(r#"(?ms)<h1 class=\"p-novel__title[^>]*>(.*?)</h1>"#).unwrap();
     let chapter_title = maybe_group(re_title.captures(chapter_html_in), 1)
         .trim()
         .to_string();
@@ -363,9 +363,7 @@ fn generate_chapter(
         title_tag
     ));
 
-    let re_text =
-        regex::Regex::new(r#"(?ms)<div id=\"novel_honbun\" class=\"novel_view\">(.*?)</div>"#)
-            .unwrap();
+    let re_text = regex::Regex::new(r#"(?ms)<div class=\"p-novel__body[^>]*>(.*?)</div>"#).unwrap();
     let chapter_text = maybe_group(re_text.captures(chapter_html_in), 1).trim();
 
     let re_paragraph = regex::Regex::new(r#"(?ms)<p[^>]*>(.*?)</p>"#).unwrap();
@@ -505,9 +503,10 @@ fn main() {
     // Download main page (possibly paginated across multiple actual pages).
     println!("Downloading table of contents...");
     let main_page = {
-        let re_main_next =
-            regex::Regex::new(r#"(?ms)<a href="([^<]*?)" class="novelview_pager-next">次へ</a>"#)
-                .unwrap();
+        let re_main_next = regex::Regex::new(
+            r#"(?ms)<a href="([^<]*?)" class="c-pager__item c-pager__item--next">次へ</a>"#,
+        )
+        .unwrap();
 
         let mut content = String::new();
         let mut next_url: Option<String> = Some(main_url.into());
@@ -533,12 +532,12 @@ fn main() {
     let title = if let Some(title) = args.title {
         title
     } else {
-        let re = regex::Regex::new(r#"(?ms)<p class=\"novel_title\">(.*?)</p>"#).unwrap();
+        let re = regex::Regex::new(r#"(?ms)<h1 class=\"p-novel__title\">(.*?)</h1>"#).unwrap();
         common_subs(maybe_group(re.captures(&main_page), 1).trim())
     };
 
     let author = {
-        let re1 = regex::Regex::new(r#"(?ms)<div class=\"novel_writername\">.*?作者：(.*?)</div>"#)
+        let re1 = regex::Regex::new(r#"(?ms)<div class=\"p-novel__author\">.*?作者：(.*?)</div>"#)
             .unwrap();
         let re2 = regex::Regex::new(r#"<a[^>]*>"#).unwrap();
 
@@ -552,11 +551,12 @@ fn main() {
     // in `<a href="url">title</a>` format.
     let table_of_contents: Vec<(&str, Vec<&str>)> = {
         let re_volumes =
-            regex::Regex::new(r#"(?ms)<div class=\"chapter_title\">(.*?)</div>"#).unwrap();
+            regex::Regex::new(r#"(?ms)<div class=\"p-eplist__chapter-title\">(.*?)</div>"#)
+                .unwrap();
 
         fn get_chapter_links<'a>(html: &'a str) -> Vec<&'a str> {
             let re_chapters =
-                regex::Regex::new(r#"(?ms)<dd class=\"subtitle\">(.*?)</dd>"#).unwrap();
+                regex::Regex::new(r#"(?ms)<div class=\"p-eplist__sublist\">(.*?)</div>"#).unwrap();
 
             re_chapters
                 .captures_iter(html)
