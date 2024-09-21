@@ -261,10 +261,27 @@ div.column{ display: inline-block; vertical-align: top; width: 50%; }
     border: 1px solid #000;
 }
 
-rt span.pitch {
-    color: #777;
-    margin-bottom: 0.25em;
-    font-size: 0.65em;
+rt {
+    font-size: 0.5em;
+}
+
+span.pitch_accent {
+    display: inline-block;
+    padding-right: 0.15em;
+    border-right: solid 0.12rem #d0d0d0;
+    border-bottom-right-radius: 0.5em;
+}
+rt span.pitch_accent {
+    padding-right: 0.1em;
+}
+
+span.pitch_flat {
+    display: inline-block;
+    padding-right: 0.15em;
+    border-right: solid 0.075rem #d0d0d0;
+}
+rt span.pitch_flat {
+    padding-right: 0.1em;
 }
 "#;
 
@@ -434,7 +451,7 @@ impl Args {
             .help("Auto-generate furigana on kanji in the text.")
             .switch();
         let furigana_pitch_accent = long("furigana-pitch-accent")
-            .help("When adding furigana to a word, include a numerical indicator of the word's pitch accent if available.")
+            .help("When adding furigana to a word, include a pitch accent marker when the accent is unambiguous. A curled marker indicates the accented mora, a flat marker indicates flat pitch (heiban).")
             .switch();
         let furigana_exclude = long("furigana-exclude")
             .help("When auto-generating furigana, exclude words made up of the first N most common kanji.")
