@@ -268,7 +268,7 @@ rt {
 span.pitch_accent {
     display: inline-block;
     padding-right: 0.15em;
-    border-right: solid 0.12rem #d0d0d0;
+    border-right: solid 0.12rem #c0c0c0;
     border-bottom-right-radius: 0.5em;
 }
 rt span.pitch_accent {
@@ -278,7 +278,7 @@ rt span.pitch_accent {
 span.pitch_flat {
     display: inline-block;
     padding-right: 0.15em;
-    border-right: solid 0.075rem #d0d0d0;
+    border-right: solid 0.075rem #c0c0c0;
 }
 rt span.pitch_flat {
     padding-right: 0.1em;
