@@ -50,15 +50,16 @@ volume 2, chapters 5 through 10:
 ./syosetu2ebook -v 2 -c 5-10 http://ncode.syosetu.com/n6316bn
 ```
 
-You can also optionally have furigana automatically generated (not 100%
-accurate, but is pretty good) by passing the `-f` flag:
-
-```bash
-./syosetu2ebook -f http://ncode.syosetu.com/n6316bn
-```
-
 There are additional features as well.  Please see the command line help
 (`./syosetu2ebook --help`) for more details.
+
+
+## Removed Features
+
+Syosetu 2 eBook used to provide some features that have since been removed.  This is because those features are now handled by separate tools that can be run on the generated ebooks afterwards.  Specifically:
+
+- Generating KOBO .kepub files: use [kepubify](https://github.com/pgaskin/kepubify)
+- Adding furigana: use [EPUB Furigana](https://github.com/cessen/epub_furigana)
 
 
 ## License

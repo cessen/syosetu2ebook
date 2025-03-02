@@ -1,15 +1,4 @@
-//! This requires both of the following to be installed:
-//!
-//! - Kepubify: https://pgaskin.net/kepubify/
-//!
-//! It downloads books from https://syosetu.com and converts them into
-//! .kepub format for Kobo e-readers.  Kepub is also compatible with
-//! standard epub files, so they should work on any e-reader that
-//! supports epub files as well.
-
-use std::{fs::File, io::Write, process::Command, time::Duration};
-
-use furigana_gen::FuriganaGenerator;
+use std::{fs::File, io::Write, time::Duration};
 
 #[derive(Debug, Clone)]
 struct Volume {
@@ -356,23 +345,8 @@ fn ascii_to_fullwidth(text: &str) -> String {
 
 // Returns (title, xhtml_page).  Note that the content contains the title as a
 // header item as well.  The separate title is for metadata.
-fn generate_chapter(
-    chapter_html_in: &str,
-    title_tag: &str,
-    mut furgen_session: Option<&mut furigana_gen::Session>,
-) -> Chapter {
+fn generate_chapter(chapter_html_in: &str, title_tag: &str) -> Chapter {
     let mut text = String::new();
-
-    let mut process = |text: &str| -> String {
-        let text = common_subs(text);
-
-        // Optionally add furigana.
-        if let Some(ref mut session) = furgen_session {
-            session.add_html_furigana(&text)
-        } else {
-            text
-        }
-    };
 
     let re_title = regex::Regex::new(r#"(?ms)<h1 class=\"p-novel__title[^>]*>(.*?)</h1>"#).unwrap();
     let chapter_title = maybe_group(re_title.captures(chapter_html_in), 1)
@@ -382,7 +356,7 @@ fn generate_chapter(
     text.push_str(&format!(
         "<{}>{}</{}>\n\n",
         title_tag,
-        process(&chapter_title),
+        common_subs(&chapter_title),
         title_tag
     ));
 
@@ -407,7 +381,7 @@ fn generate_chapter(
                 text.push_str("<p class=\"blank\"></p>\n");
             } else if paragraph != "" {
                 text.push_str("<p>");
-                text.push_str(&process(paragraph));
+                text.push_str(&common_subs(paragraph));
                 text.push_str("</p>\n");
             }
         }
@@ -426,12 +400,6 @@ fn generate_chapter(
 
 #[derive(Clone, Debug)]
 struct Args {
-    kepub: bool,
-    furigana: bool,
-    furigana_pitch_accent: bool,
-    furigana_exclude: Option<usize>,
-    furigana_learn_mode: bool,
-    furigana_word_stats: bool,
     volume: Option<usize>,
     chapters: Option<String>,
     title: Option<String>,
@@ -440,53 +408,26 @@ struct Args {
 
 impl Args {
     fn parse() -> Args {
-        use bpaf::{construct, long, positional, short, Parser};
+        use bpaf::{construct, long, positional, Parser};
 
-        let kepub = short('k')
-            .long("kepub")
-            .help("Additionally generate a Kobo kepub file (requires Kepubify to be installed).")
-            .switch();
-        let furigana = short('f')
-            .long("furigana")
-            .help("Auto-generate furigana on kanji in the text.")
-            .switch();
-        let furigana_pitch_accent = long("furigana-pitch-accent")
-            .help("When adding furigana to a word, include a pitch accent marker when the accent is unambiguous. A curled marker indicates the accented mora, a flat marker indicates flat pitch (heiban).")
-            .switch();
-        let furigana_exclude = long("furigana-exclude")
-            .help("When auto-generating furigana, exclude words made up of the first N most common kanji.")
-            .argument::<usize>("N")
-            .optional();
-        let furigana_learn_mode = long("furigana-learn-mode")
-            .help("When auto-generating furigana, put it on words in a spaced-repitition style, so words that show up frequenly loose their furigana as the book goes on.")
-            .switch();
-        let furigana_word_stats = long("furigana-word-stats")
-            .help("When auto-generating furigana is enabled, this will output a word stats file showing all the words parsed along with some statistics about them.")
-            .switch();
-        let volume = short('v')
-            .long("volume")
+        let volume = long("volume")
+            .short('v')
             .help("For books with multiple volumes, only download the Nth volume.")
             .argument::<usize>("N")
             .optional();
-        let chapters = short('c')
-            .long("chapters")
+        let chapters = long("chapters")
+            .short('c')
             .help("Only download chapters N through M. (Note: you probably only want this when downloading a single volume.)")
             .argument::<String>("N-M")
             .optional();
-        let title = short('t')
-        .long("title")
-        .help("Specify an alternate title to use (sometimes the titles have extra non-title info in them on the site).")
-        .argument::<String>("TITLE").optional();
+        let title = long("title")
+            .short('t')
+            .help("Specify an alternate title to use (sometimes the titles have extra non-title info in them on the site).")
+            .argument::<String>("TITLE").optional();
         let book = positional::<String>("BOOK_URL")
             .help("The full url of book's main page on syosetu.com.");
 
         construct!(Args {
-            kepub,
-            furigana,
-            furigana_pitch_accent,
-            furigana_exclude,
-            furigana_learn_mode,
-            furigana_word_stats,
             volume,
             chapters,
             title,
@@ -529,17 +470,6 @@ fn main() {
     if !args.validate() {
         return;
     }
-
-    let furigana_generator = FuriganaGenerator::new(
-        args.furigana_exclude.unwrap_or(0),
-        true,
-        args.furigana_pitch_accent,
-    );
-    let mut furigen_session = if args.furigana {
-        Some(furigana_generator.new_session(args.furigana_learn_mode))
-    } else {
-        None
-    };
 
     let main_url = args.book.trim_end_matches("/");
     let base_url = main_url.rsplitn(2, "/").nth(1).unwrap();
@@ -688,11 +618,7 @@ fn main() {
                     let sub_chapter_url = format!("{}/{}", main_url, sub_chapter_url_number);
                     let chapter_html = get_page(&sub_chapter_url).unwrap();
 
-                    chapters.push(generate_chapter(
-                        &chapter_html,
-                        "h1",
-                        furigen_session.as_mut(),
-                    ));
+                    chapters.push(generate_chapter(&chapter_html, "h1"));
                 }
 
                 Volume {
@@ -719,10 +645,6 @@ fn main() {
                         book_filename.push_str(&format!(" - {}", composite_subtitle));
                     }
 
-                    if args.furigana {
-                        book_filename.push_str("_furigana");
-                    }
-
                     book_filename
                         .replace("/", "")
                         .replace("\\", "")
@@ -737,50 +659,6 @@ fn main() {
                     let mut f = File::create(&epub_filepath).unwrap();
                     f.write_all(&epub_bytes).unwrap();
                 }
-
-                // Optionally make kepub.
-                let kepub_filepath = format!("{}.kepub.epub", book_filename);
-                if args.kepub {
-                    println!("    Generating \"{}\"", kepub_filepath);
-                    let output = Command::new("kepubify")
-                        .arg(&epub_filepath)
-                        .arg("-o")
-                        .arg(&kepub_filepath)
-                        .output()
-                        .expect(
-                            "Failed to execute kepubify: are you sure it's installed and in your path?",
-                        );
-
-                    std::io::stdout().write_all(&output.stdout).unwrap();
-                    if !output.status.success() {
-                        std::io::stderr().write_all(&output.stderr).unwrap();
-                        panic!("kepubify did not succeed.");
-                    }
-                }
-            }
-        }
-    }
-
-    // Save word stats to a text file.
-    if args.furigana_word_stats {
-        if let Some(session) = furigen_session {
-            // Output filename.
-            let filename: String = {
-                let filename = format!("{} - word stats.txt", title);
-                filename.replace("/", "").replace("\\", "").trim().into()
-            };
-
-            let (total_words, stats) = session.word_stats();
-
-            let mut f = File::create(&filename).unwrap();
-            write!(&mut f, "Text length in words: {}\n\n", total_words).unwrap();
-            for (word, max_distance, times_seen) in stats.iter() {
-                write!(
-                    &mut f,
-                    "{}        distance {} | seen {}\n",
-                    word, max_distance, times_seen
-                )
-                .unwrap();
             }
         }
     }
