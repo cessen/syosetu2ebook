@@ -63,7 +63,7 @@ There are additional features as well.  Please see the command line help
 
 ## License
 
-Syosetu 2 eBook is licensed under the MIT license (LICENSE or http://opensource.org/licenses/MIT).
+Syosetu 2 eBook is licensed under the GPLv3 ([LICENSE.md](LICENSE.md) or https://opensource.org/license/gpl-3-0).
 
 
 ## Contributing
