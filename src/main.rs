@@ -19,7 +19,7 @@ struct Chapter {
 }
 
 /// (composite_subtitle, data)
-fn volume_to_epub(volume: &Volume) -> (String, Vec<u8>) {
+fn volume_to_epub(volume: &Volume, horizontal_text: bool) -> (String, Vec<u8>) {
     let mut builder =
         epub_builder::EpubBuilder::new(epub_builder::ZipLibrary::new().unwrap()).unwrap();
 
@@ -43,10 +43,20 @@ fn volume_to_epub(volume: &Volume) -> (String, Vec<u8>) {
         t
     };
 
+    let css = format!(
+        "@charset \"utf-8\";\n{}{}",
+        if horizontal_text {
+            CSS_BODY_HORIZONTAL_TEXT
+        } else {
+            CSS_BODY_VERTICAL_TEXT
+        },
+        CSS_MAIN
+    );
+
     builder.set_lang("ja");
     builder.metadata("author", &volume.author).unwrap();
     builder.metadata("title", &composite_title).unwrap();
-    builder.stylesheet(EPUB_CSS.as_bytes()).unwrap();
+    builder.stylesheet(css.as_bytes()).unwrap();
 
     // Title page.
     {
@@ -166,22 +176,22 @@ fn epub_content_page(title: &str, content: &str) -> String {
     page
 }
 
-const EPUB_CSS: &str = r#"@charset "utf-8";
+const CSS_BODY_VERTICAL_TEXT: &str = r#"
 body {
     writing-mode: vertical-rl;
-    -webkit-writing-mode: vertical-rl;
-    -moz-writing-mode: vertical-rl;
-    -o-writing-mode: vertical-rl;
-    -ms-writing-mode: vertical-rl;
-    -epub-writing-mode: vertical-rl;
+    text-orientation: mixed;
+}
+"#;
 
-    text-orientation: upright;
-    -webkit-text-orientation: upright;
-    -moz-text-orientation: upright;
-    -o-text-orientation: upright;
-    -ms-text-orientation: upright;
-    -epub-text-orientation: upright;
+const CSS_BODY_HORIZONTAL_TEXT: &str = r#"
+body {
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
+}
+"#;
 
+const CSS_MAIN: &str = r#";
+body {
     font-size: medium;
     font-family: serif;
     text-align: justify;
@@ -232,11 +242,9 @@ div.column{ display: inline-block; vertical-align: top; width: 50%; }
 /* Misc classes for special styling. */
 .horiz {
     writing-mode: horizontal-tb;
-    -webkit-writing-mode: horizontal-lr;
-    -moz-writing-mode: horizontal-lr;
-    -o-writing-mode: horizontal-lr;
-    -ms-writing-mode: horizontal-lr;
-    -epub-writing-mode: horizontal-lr;
+}
+.vertical {
+    writing-mode: vertical-rl-tb;
 }
 
 .inset {
@@ -279,7 +287,7 @@ fn get_page(url: &str) -> Result<String, ureq::Error> {
 
     // IP will be banned for a short time if pages are loaded too fast.
     // The original script had a wait time of 0.1 seconds, which worked
-    // fine.  1.0 is extra conservative, just to be safe.
+    // fine.  0.5 is extra conservative, just to be safe.
     std::thread::sleep(Duration::from_secs_f32(0.5));
 
     let agent: ureq::Agent = ureq::AgentBuilder::new()
@@ -403,6 +411,7 @@ struct Args {
     volume: Option<usize>,
     chapters: Option<String>,
     title: Option<String>,
+    horizontal_text: bool,
     book: String,
 }
 
@@ -424,6 +433,9 @@ impl Args {
             .short('t')
             .help("Specify an alternate title to use (sometimes the titles have extra non-title info in them on the site).")
             .argument::<String>("TITLE").optional();
+        let horizontal_text = long("horizontal")
+            .help("Renders the book with horizontal left-to-right text (instead of the default vertical right-to-left).")
+            .switch();
         let book = positional::<String>("BOOK_URL")
             .help("The full url of book's main page on syosetu.com.");
 
@@ -431,6 +443,7 @@ impl Args {
             volume,
             chapters,
             title,
+            horizontal_text,
             book
         })
         .to_options()
@@ -632,7 +645,8 @@ fn main() {
 
             // Generate the epub.
             {
-                let (composite_subtitle, epub_bytes) = volume_to_epub(&volume);
+                let (composite_subtitle, epub_bytes) =
+                    volume_to_epub(&volume, args.horizontal_text);
 
                 // Output filename, sans extension.
                 let book_filename: String = {
