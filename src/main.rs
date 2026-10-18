@@ -53,7 +53,7 @@ fn volume_to_epub(volume: &Volume, horizontal_text: bool) -> (String, Vec<u8>) {
         CSS_MAIN
     );
 
-    builder.set_lang("ja");
+    builder.set_languages(vec!["ja".into()]);
     builder.metadata("author", &volume.author).unwrap();
     builder.metadata("title", &composite_title).unwrap();
     builder.stylesheet(css.as_bytes()).unwrap();
