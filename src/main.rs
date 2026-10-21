@@ -296,7 +296,12 @@ fn get_page(url: &str) -> Result<String, ureq::Error> {
       .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36")
       .build();
 
-    Ok(agent.get(url).call()?.into_string().unwrap())
+    let response = agent
+      .get(url)
+      .set("Cookie", "over18=yes")
+      .call()?;
+
+    Ok(response.into_string().unwrap())
 }
 
 fn maybe_group<'a>(hit: Option<regex::Captures<'a>>, group_index: usize) -> &'a str {
